@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+data/
+storage/*
+!storage/.gitkeep
+*.log
+.DS_Store
+cookie.txt
+.playwright-mcp/

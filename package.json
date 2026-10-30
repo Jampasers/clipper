@@ -1,0 +1,59 @@
+{
+  "name": "ai-video-clipper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first AI video clipper with web dashboard and Telegram bot",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/src/index.js",
+    "worker": "node dist/src/workers/worker.js",
+    "telegram": "node dist/src/telegram/entry.js",
+    "studio": "remotion studio remotion/index.tsx",
+    "db:init": "tsx scripts/init-db.ts",
+    "seed": "tsx scripts/init-db.ts",
+    "test": "tsx test/run.ts",
+    "test:unit": "tsx test/run.ts unit",
+    "test:api": "tsx test/run.ts api",
+    "test:e2e": "tsx test/run.ts e2e",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.539",
+    "@remotion/renderer": "^4.0.539",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jose": "^5.9.6",
+    "multer": "^2.5.0",
+    "nanoid": "^5.0.9",
+    "openai": "^4.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "^4.0.539",
+    "undici": "^6.21.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.539",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.7",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

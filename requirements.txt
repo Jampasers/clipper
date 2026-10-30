@@ -1,0 +1,9 @@
+# Python sidecar deps for faster-whisper transcription + OpenCV face tracking.
+# av<19 is required: faster-whisper 1.2.x calls av.open(..., metadata_errors=...)
+# which PyAV 19 removed. huggingface-hub<2 is required for the same reason.
+faster-whisper>=1.2,<1.3
+av>=13,<19
+huggingface-hub<2
+# OpenCV 5.0 removed the legacy Haar CascadeClassifier API used by track_faces.py.
+opencv-python-headless>=4.8,<5
+yt-dlp>=2025.1.1

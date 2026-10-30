@@ -1,0 +1,18 @@
+# Optional local dependencies.
+#
+# The application itself runs best directly on the host (FFmpeg/GPU/Whisper
+# are easier outside containers). Redis is only needed if you want to set
+# QUEUE_DRIVER=redis in .env instead of the default SQLite-backed queue.
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: av-clipper-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+
+volumes:
+  redis-data:
