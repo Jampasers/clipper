@@ -46,7 +46,7 @@ export const config = {
   ytdlp: process.env.YTDLP_PATH || 'yt-dlp',
   ytdlpMaxHeight: parseInt(process.env.YTDLP_MAX_HEIGHT || '1080', 10),
   whisper: {
-    model: process.env.WHISPER_MODEL || 'base',
+    model: process.env.WHISPER_MODEL || 'small',
     device: process.env.WHISPER_DEVICE || 'cpu',
     computeType: process.env.WHISPER_COMPUTE_TYPE || 'int8',
   },

@@ -41,6 +41,7 @@ MAX_JUMP = 0.4  # fraction of frame width; position continuity for silent scenes
 TALK_FLOOR = 6.0  # mouth motion (gray units) above whole-face motion => talking
 CUT_MIN = 14.0  # whole-frame mean diff above which we treat it as a new shot
 SPEECH_MARGIN = 0.35  # seconds of slack around transcript speech windows
+PRE_SPEECH = 0.9  # lead time: frame the next speaker this long before their line starts
 
 
 def pick_anchors(samples, speech, max_jump=MAX_JUMP, talk_floor=TALK_FLOOR, cut_min=CUT_MIN):
@@ -52,9 +53,16 @@ def pick_anchors(samples, speech, max_jump=MAX_JUMP, talk_floor=TALK_FLOOR, cut_
     def speaking(t):
         return any(a - SPEECH_MARGIN <= t <= b + SPEECH_MARGIN for a, b in speech)
 
+    def pre_speech(t):
+        # the stretch of silence right before a line: the next speaker is
+        # already inhaling / opening their mouth there
+        return any(a - PRE_SPEECH <= t < a for a, b in speech)
+
     gated = bool(speech)
     out = []
     anchor = None
+    cand = None  # pending switch target
+    cand_n = 0  # consecutive samples the pending target has dominated
     for i, s in enumerate(samples):
         faces = s["faces"]
         if not faces:
@@ -62,13 +70,33 @@ def pick_anchors(samples, speech, max_jump=MAX_JUMP, talk_floor=TALK_FLOOR, cut_
                 out.append((s["t"], anchor, 0))
             continue
         if gated and not speaking(s["t"]):
-            # nobody is talking: hold the current framing, never re-anchor
-            # (head-bobs, gestures and camera drift must not steal the shot)
-            if anchor is not None:
+            cand, cand_n = None, 0
+            if anchor is None:
+                continue
+            if pre_speech(s["t"]):
+                # pre-positioning: move to the person about to speak BEFORE
+                # the words start, so the shot does not sit on the last
+                # speaker and whip over mid-sentence. Relaxed thresholds:
+                # an inhale or mouth-opening counts as a hint.
+                if len(faces) == 1:
+                    f = faces[0]
+                    far = abs(f["cx"] - anchor) > max_jump
+                    if far and (s["cut"] >= cut_min or f["talk"] >= 1.0):
+                        anchor = f["cx"]
+                else:
+                    ordered = sorted(faces, key=lambda f: f["talk"], reverse=True)
+                    top = ordered[0]
+                    if top["talk"] >= 1.0 and top["talk"] >= ordered[1]["talk"] + 1.0:
+                        anchor = top["cx"]
+                out.append((s["t"], anchor, len(faces)))
+            else:
+                # nobody is talking: hold the current framing, never re-anchor
+                # (head-bobs, gestures and camera drift must not steal the shot)
                 out.append((s["t"], anchor, len(faces)))
             continue
         if len(faces) == 1:
             f = faces[0]
+            cand, cand_n = None, 0
             far = anchor is not None and abs(f["cx"] - anchor) > max_jump
             if far:
                 nxt = samples[i + 1]["faces"] if i + 1 < len(samples) else []
@@ -100,9 +128,18 @@ def pick_anchors(samples, speech, max_jump=MAX_JUMP, talk_floor=TALK_FLOOR, cut_
             continue
         ordered = sorted(faces, key=lambda f: f["talk"], reverse=True)
         dominant = ordered[0]["talk"] >= (ordered[1]["talk"] if len(ordered) > 1 else 0.0) + 1.5
-        if talker["talk"] >= talk_floor or (gated and dominant and talker["talk"] >= 1.5):
-            anchor = talker["cx"]
+        want = talker["cx"] if (talker["talk"] >= talk_floor or (gated and dominant and talker["talk"] >= 1.5)) else None
+        # one glitched sample (face dropout, stray gesture) must not steal the
+        # shot: only a target that keeps winning for two samples may switch
+        if want is None:
+            cand, cand_n = None, 0
+        elif cand is not None and abs(want - cand) <= 0.06:
+            cand_n += 1
         else:
+            cand, cand_n = want, 1
+        if cand_n >= 2 and abs(cand - anchor) > 0.02:
+            anchor = cand
+        elif cand is None:
             near = min(faces, key=lambda f: abs(f["cx"] - anchor))
             if abs(near["cx"] - anchor) <= max_jump:
                 anchor = near["cx"]

@@ -1,0 +1,122 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e5]:
+      - generic [ref=f1e6]: 🎬 ClipStudio
+      - navigation [ref=f1e7]:
+        - link "📊 Dashboard" [ref=f1e8] [cursor=pointer]:
+          - /url: "#/dashboard"
+        - link "🎞 Projects" [ref=f1e9] [cursor=pointer]:
+          - /url: "#/projects"
+        - link "✂️ Clips" [ref=f1e10] [cursor=pointer]:
+          - /url: "#/clips"
+        - generic [ref=f1e11]: AI
+        - link "Models & Routing" [ref=f1e12] [cursor=pointer]:
+          - /url: "#/settings/ai"
+        - link "Prompts" [ref=f1e13] [cursor=pointer]:
+          - /url: "#/settings/prompts"
+        - generic [ref=f1e14]: Clipping
+        - link "Detection & Scoring" [ref=f1e15] [cursor=pointer]:
+          - /url: "#/settings/clipping"
+        - link "Boundaries" [ref=f1e16] [cursor=pointer]:
+          - /url: "#/settings/clipping"
+        - generic [ref=f1e17]: Video
+        - link "Subtitles" [ref=f1e18] [cursor=pointer]:
+          - /url: "#/settings/subtitles"
+        - link "Reframe" [ref=f1e19] [cursor=pointer]:
+          - /url: "#/settings/reframe"
+        - link "Rendering" [ref=f1e20] [cursor=pointer]:
+          - /url: "#/settings/render"
+        - link "Telegram" [ref=f1e21] [cursor=pointer]:
+          - /url: "#/settings/telegram"
+        - generic [ref=f1e22]: System
+        - link "Workers & Health" [ref=f1e23] [cursor=pointer]:
+          - /url: "#/settings/system"
+        - link "Storage & Logs" [ref=f1e24] [cursor=pointer]:
+          - /url: "#/settings/storage"
+      - button "Log out" [ref=f1e26] [cursor=pointer]
+    - main [ref=f1e3]:
+      - generic [ref=f1e27]:
+        - generic [ref=f1e28]:
+          - link "← Clips" [ref=f1e29] [cursor=pointer]:
+            - /url: "#/clips"
+          - heading "Satu-satunya Organ yang Tak Bisa Ditransplantasi" [level=1] [ref=f1e30]
+          - generic [ref=f1e31]:
+            - generic [ref=f1e32]: rendered_final
+            - generic [ref=f1e33]: 4:08 → 4:59 (50.3s)
+            - generic [ref=f1e34]: 9:16
+            - generic [ref=f1e35]: "preset: classic"
+        - generic [ref=f1e36]:
+          - button "👁 Preview" [disabled] [ref=f1e37]
+          - button "⏳ Preview queued" [disabled] [ref=f1e118]
+          - button "Reject" [ref=f1e39] [cursor=pointer]
+        - generic [ref=f1e119]: Preview queued — 0%
+      - generic [ref=f1e40]:
+        - generic [ref=f1e41]:
+          - heading "Preview / output" [level=2] [ref=f1e42]
+          - generic [ref=f1e44]: Final render available
+          - link "⬇ Download render" [ref=f1e45] [cursor=pointer]:
+            - /url: /media/outputs/UOxXmD2VZJ_final.mp4
+          - generic [ref=f1e46]:
+            - generic [ref=f1e47]: Aspect
+            - combobox [ref=f1e48]:
+              - option "9:16" [selected]
+              - option "1:1"
+              - option "16:9"
+            - generic [ref=f1e49]: Subtitle preset
+            - combobox [ref=f1e50]:
+              - option "classic" [selected]
+              - option "bold"
+              - option "minimal"
+              - option "karaoke"
+              - option "podcast"
+            - button "Save style" [ref=f1e51] [cursor=pointer]
+          - generic [ref=f1e52]:
+            - 'textbox "AI re-edit: e.g. “start 5 seconds earlier”, “remove first sentence”, “use 9:16”…" [ref=f1e53]'
+            - button "✨ Apply" [ref=f1e54] [cursor=pointer]
+        - generic [ref=f1e55]:
+          - heading "Clip detail" [level=2] [ref=f1e56]
+          - paragraph [ref=f1e57]: "Hook: Otak adalah satu-satunya organ yang tidak bisa kita transplan."
+          - paragraph [ref=f1e58]: "Why it works: Fakta mengejutkan di 3 detik pertama yang langsung memicu rasa ingin tahu dan urgensi menjaga otak."
+          - generic [ref=f1e59]: Title
+          - textbox [ref=f1e60]: Satu-satunya Organ yang Tak Bisa Ditransplantasi
+          - generic [ref=f1e61]:
+            - generic [ref=f1e62]:
+              - generic [ref=f1e63]: Start (s)
+              - spinbutton [ref=f1e64]: "248.34"
+            - generic [ref=f1e65]:
+              - generic [ref=f1e66]: End (s)
+              - spinbutton [ref=f1e67]: "298.65"
+            - button "Save window" [ref=f1e69] [cursor=pointer]
+          - heading "Score 58/100" [level=2] [ref=f1e70]
+          - generic [ref=f1e71]:
+            - generic [ref=f1e72]: hook
+            - generic [ref=f1e75]: "6.0"
+          - generic [ref=f1e76]:
+            - generic [ref=f1e77]: context
+            - generic [ref=f1e80]: "7.0"
+          - generic [ref=f1e81]:
+            - generic [ref=f1e82]: standalone
+            - generic [ref=f1e85]: "7.0"
+          - generic [ref=f1e86]:
+            - generic [ref=f1e87]: emotion
+            - generic [ref=f1e90]: "5.0"
+          - generic [ref=f1e91]:
+            - generic [ref=f1e92]: entertainment
+            - generic [ref=f1e95]: "4.0"
+          - generic [ref=f1e96]:
+            - generic [ref=f1e97]: payoff
+            - generic [ref=f1e100]: "5.0"
+          - generic [ref=f1e101]:
+            - generic [ref=f1e102]: curiosity
+            - generic [ref=f1e105]: "6.0"
+          - generic [ref=f1e106]:
+            - generic [ref=f1e107]: shareability
+            - generic [ref=f1e110]: "6.0"
+          - generic [ref=f1e111]:
+            - generic [ref=f1e112]: length
+            - generic [ref=f1e115]: "8.8"
+          - paragraph [ref=f1e116]:
+            - text: "Project:"
+            - 'link "Neurosurgeon: 59 Menit Berharga Untuk Lebih Kenal OTAKMU SENDIRI! | SUARA BERKELAS #207" [ref=f1e117] [cursor=pointer]':
+              - /url: "#/projects/eMoimbSI1D"
+  - generic [ref=f1e120]: Preview rendering started

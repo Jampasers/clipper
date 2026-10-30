@@ -1,0 +1,10 @@
+- main [ref=e3]:
+  - generic [ref=e6]:
+    - heading "🎬 ClipStudio" [level=1] [ref=e7]
+    - paragraph [ref=e8]: Sign in to your workspace
+    - generic [ref=e9]:
+      - generic [ref=e10]: Username
+      - textbox [active] [ref=e11]
+      - generic [ref=e12]: Password
+      - textbox [ref=e13]
+      - button "Log in" [ref=e15] [cursor=pointer]
