@@ -131,6 +131,112 @@ CREATE TABLE IF NOT EXISTS logs (
   meta TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts);
+
+/* ---- AI editing upgrade (additive migrations) ---- */
+
+CREATE TABLE IF NOT EXISTS watermarks (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source_path TEXT,
+  mime TEXT NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  default_position TEXT NOT NULL DEFAULT 'bottom-right',
+  width_percent REAL NOT NULL DEFAULT 18,
+  opacity REAL NOT NULL DEFAULT 0.85,
+  margin INTEGER NOT NULL DEFAULT 36,
+  x INTEGER,
+  y INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_watermarks_enabled ON watermarks(enabled);
+
+CREATE TABLE IF NOT EXISTS music_assets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  mood TEXT,
+  genre TEXT,
+  energy INTEGER NOT NULL DEFAULT 3,
+  bpm REAL,
+  duration REAL,
+  license TEXT,
+  attribution TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_music_enabled ON music_assets(enabled);
+
+CREATE TABLE IF NOT EXISTS editing_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  options_hash TEXT NOT NULL,
+  data TEXT NOT NULL,
+  model TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_editing_plans_key ON editing_plans(clip_id, options_hash);
+
+CREATE TABLE IF NOT EXISTS render_presets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  data TEXT NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS render_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  clip_id TEXT NOT NULL,
+  options TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_render_snapshots_clip ON render_snapshots(clip_id);
+
+/* ---- AI creative editor (additive migrations) ---- */
+
+CREATE TABLE IF NOT EXISTS broll_assets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'video',
+  width INTEGER,
+  height INTEGER,
+  duration REAL,
+  tags TEXT,
+  source TEXT,
+  license TEXT,
+  attribution TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_broll_enabled ON broll_assets(enabled);
+
+CREATE TABLE IF NOT EXISTS sound_effects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  duration REAL,
+  tags TEXT,
+  source TEXT,
+  license TEXT,
+  attribution TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sfx_enabled ON sound_effects(enabled);
 `);
 }
 

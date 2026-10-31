@@ -10,6 +10,8 @@ import { projectsRouter, mediaRouter, jobsRouter } from './routes/projects.js';
 import { clipsApi } from './routes/clips.js';
 import { settingsRouter, promptsRouter, systemRouter } from './routes/settings.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { assetsRouter } from './routes/assets.js';
+import { renderRouter } from './routes/render.js';
 import { runHealthChecks } from './lib/health.js';
 
 export function createApp(): express.Express {
@@ -28,6 +30,8 @@ export function createApp(): express.Express {
   app.use('/api/system', systemRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/dashboard', dashboardRouter);
+  app.use('/api/assets', assetsRouter);
+  app.use('/api/render', renderRouter);
   app.use('/media', mediaRouter);
 
   app.get('/api/health', async (_req, res) => {

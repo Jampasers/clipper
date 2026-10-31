@@ -8,8 +8,9 @@ import { authorizationCheck, TelegramClient, type TgUpdate } from './client.js';
 import { createProject, getProject, projectSummary, listProjects } from '../services/projects.js';
 import { listClips, clipView, getClip } from '../services/clips.js';
 import { enqueueProjectPipeline } from '../services/pipeline.js';
-import { getSettings } from '../lib/settings.js';
+import { getSettings, deepMerge } from '../lib/settings.js';
 import { runHealthChecks } from '../lib/health.js';
+import { defaultRenderOptions, listRenderPresets, resolveRenderOptions, type RenderOptions } from '../services/render-options.js';
 
 /**
  * Telegram bot: same backend services as the web UI — no business logic here.
@@ -17,6 +18,21 @@ import { runHealthChecks } from '../lib/health.js';
  */
 
 const MAX_TG_UPLOAD = 49 * 1024 * 1024; // Bot API sendVideo limit
+
+/** Draft render options per (chat, clip), toggled through inline buttons. */
+const drafts = new Map<string, RenderOptions>();
+const HOOK_STEPS = [3, 5, 7, 10];
+const SUB_STYLES = ['ai', 'bold', 'karaoke', 'kinetic'] as const;
+
+function draftFor(chatId: number, clipId: string): RenderOptions {
+  const key = `${chatId}:${clipId}`;
+  let d = drafts.get(key);
+  if (!d) {
+    d = resolveRenderOptions(null, null).options;
+    drafts.set(key, d);
+  }
+  return d;
+}
 
 export function startTelegram(): () => void {
   if (!config.telegram.token) {
@@ -90,14 +106,29 @@ async function handleUpdate(client: TelegramClient, u: TgUpdate): Promise<void> 
       '2. Find + score the best clips',
       '3. Let you pick clips to render with subtitles',
       '',
+      'Each clip has ▶️ Render and ⚙️ Tune (watermark/hook/music/subtitles/creative per render).',
+      '',
       '/projects — list projects',
       '/clips — candidates for the latest project',
       '/render — render the top clip',
+      '/creative — adaptive editing defaults',
       '/health — system health',
       '/help — this message',
     ].join('\n'));
   } else if (text.startsWith('/help')) {
-    await client.sendMessage(chatId, 'Send a video to start. /projects /clips /render /health. Settings live in the web dashboard.');
+    await client.sendMessage(chatId, 'Send a video to start. /projects /clips /render /creative /health. Settings live in the web dashboard.');
+  } else if (text.startsWith('/creative') || text.startsWith('/config')) {
+    const c = getSettings('creative');
+    const r = getSettings('reframe');
+    await client.sendMessage(chatId, [
+      '<b>Adaptive editing defaults</b>',
+      `🧠 mode: ${c.mode}`,
+      `🔍 quality review: ${c.quality_review ? 'on' : 'off'}`,
+      `🎨 graphics: ${c.graphics ? 'on' : 'off'}`,
+      `📐 aspect: ${r.aspect}`,
+      '',
+      'Toggle per render with ⚙️ Tune on any clip.',
+    ].join('\n'));
   } else if (text.startsWith('/projects')) {
     const ps = listProjects(8);
     if (!ps.length) return void (await client.sendMessage(chatId, 'No projects yet. Send me a video!'));
@@ -202,10 +233,13 @@ async function sendCandidates(client: TelegramClient, chatId: number, projectId:
     '',
     'Tap a clip to render it with subtitles.',
   ].join('\n');
-  const keyboard = clips.map((c) => [{
-    text: `▶️ #${c.ord} ${c.title?.slice(0, 24) ?? ''} (${c.overall?.toFixed(0) ?? '?'})`,
-    callback_data: `render:${c.id}`,
-  }]);
+  const keyboard = clips.map((c) => [
+    {
+      text: `▶️ #${c.ord} ${c.title?.slice(0, 24) ?? ''} (${c.overall?.toFixed(0) ?? '?'})`,
+      callback_data: `render:${c.id}`,
+    },
+    { text: '⚙️ Tune', callback_data: `tune:${c.id}` },
+  ]);
   const extra = { reply_markup: { inline_keyboard: keyboard } };
   if (editMessageId) {
     try { await client.editMessageText(chatId, editMessageId, text, extra as any); return; } catch { /* fallthrough */ }
@@ -213,9 +247,152 @@ async function sendCandidates(client: TelegramClient, chatId: number, projectId:
   await client.sendMessage(chatId, text, extra);
 }
 
+/* ---------------- render options menu ---------------- */
+
+const btn = (label: string, data: string) => ({ text: label, callback_data: data });
+
+function hookLabel(d: RenderOptions): string {
+  if (!d.hook.enabled) return '⚡️ Hook: off';
+  return `⚡️ Hook: ${d.hook.duration}s${d.hook.allowFallback ? ' ↺' : ''}`;
+}
+function musicLabel(d: RenderOptions): string {
+  if (!d.backgroundMusic.enabled) return '🎵 Music: off';
+  const sel = d.backgroundMusic.selection === 'ai' ? 'AI pick' : d.backgroundMusic.selection === 'none' ? 'none' : 'manual';
+  return `🎵 Music: ${sel}${d.backgroundMusic.voiceDucking ? ' +duck' : ''}`;
+}
+function subsLabel(d: RenderOptions): string {
+  if (!d.subtitles.enabled) return '💬 Subs: off';
+  return `💬 Subs: ${d.subtitles.style}${d.subtitles.animations ? ' ✨' : ''}`;
+}
+function creativeLabel(d: RenderOptions): string {
+  return `🧠 Creative: ${d.creative.mode === 'adaptive' ? 'adaptive' : 'basic'}`;
+}
+function qaLabel(d: RenderOptions): string {
+  return `🔍 QA: ${d.creative.qualityReview ? 'on' : 'off'}`;
+}
+
+function optionsKeyboard(chatId: number, clipId: string): unknown[][] {
+  const d = draftFor(chatId, clipId);
+  const p = (act: string) => `tg:${clipId}:${act}`;
+  const presets = listRenderPresets().slice(0, 4);
+  const kb: unknown[][] = [
+    [btn(d.watermark.enabled ? '🖼 WM: on' : '🖼 WM: off', p('wm')), btn(hookLabel(d), p('hook'))],
+    [btn(d.hook.enabled && d.hook.allowFallback ? '↺ fallback: on' : '↺ fallback: off', p('fb')), btn(musicLabel(d), p('music'))],
+    [btn(d.backgroundMusic.enabled && d.backgroundMusic.voiceDucking ? '🦆 duck: on' : '🦆 duck: off', p('duck')), btn(subsLabel(d), p('subs'))],
+    [btn(creativeLabel(d), p('creative')), btn(qaLabel(d), p('qa'))],
+    presets.map((ps) => btn(`🎨 ${ps.name}`, p(`preset:${ps.name}`))),
+    [btn('✅ Render with these options', p('go')), btn('✖️ Cancel', p('cancel'))],
+  ];
+  return kb;
+}
+
+function optionsText(chatId: number, clipId: string): string {
+  const clip = getClip(clipId);
+  const d = draftFor(chatId, clipId);
+  return [
+    `⚙️ <b>Render options</b> — ${escapeHtml(clip?.title ? `#${clip.ord} ${clip.title}` : clipId)}`,
+    '',
+    d.watermark.enabled ? `🖼 Watermarks: on (${d.watermark.ids.length ? d.watermark.ids.length : 'all enabled'})` : '🖼 Watermarks: off',
+    hookLabel(d),
+    musicLabel(d),
+    subsLabel(d),
+    `🧠 Creative: ${d.creative.mode}${d.creative.qualityReview ? ' + QA' : ''}`,
+    d.subtitles.enabled ? `   highlight: ${d.subtitles.aiHighlight ? 'AI' : 'off'}` : '',
+    '',
+    'Tap a button to change, then Render.',
+  ].filter(Boolean).join('\n');
+}
+
+async function showOptionsMenu(client: TelegramClient, chatId: number, clipId: string, messageId: number): Promise<void> {
+  const markup = { reply_markup: { inline_keyboard: optionsKeyboard(chatId, clipId) } };
+  try {
+    await client.editMessageText(chatId, messageId, optionsText(chatId, clipId), markup as any);
+  } catch {
+    await client.sendMessage(chatId, optionsText(chatId, clipId), markup);
+  }
+}
+
+const CYCLE_HOOK: (d: RenderOptions) => void = (d) => {
+  if (!d.hook.enabled) {
+    d.hook.enabled = true;
+    d.hook.duration = HOOK_STEPS[0];
+  } else {
+    const i = HOOK_STEPS.indexOf(d.hook.duration);
+    if (i === -1 || i === HOOK_STEPS.length - 1) d.hook.enabled = false;
+    else d.hook.duration = HOOK_STEPS[i + 1];
+  }
+};
+
+const CYCLE_MUSIC: (d: RenderOptions) => void = (d) => {
+  if (!d.backgroundMusic.enabled) {
+    d.backgroundMusic.enabled = true;
+    d.backgroundMusic.selection = 'ai';
+    return;
+  }
+  if (d.backgroundMusic.selection === 'ai') d.backgroundMusic.selection = 'none';
+  else d.backgroundMusic.enabled = false;
+};
+
+const CYCLE_SUBS: (d: RenderOptions) => void = (d) => {
+  if (!d.subtitles.enabled) {
+    d.subtitles.enabled = true;
+    d.subtitles.style = 'ai';
+    return;
+  }
+  const i = SUB_STYLES.indexOf(d.subtitles.style as (typeof SUB_STYLES)[number]);
+  if (i === -1 || i === SUB_STYLES.length - 1) d.subtitles.enabled = false;
+  else d.subtitles.style = SUB_STYLES[i + 1];
+};
+
+async function handleOptionsCallback(client: TelegramClient, chatId: number, clipId: string, act: string, messageId: number): Promise<void> {
+  if (act === 'cancel') {
+    drafts.delete(`${chatId}:${clipId}`);
+    try { await client.editMessageText(chatId, messageId, 'Cancelled.'); } catch { /* ignore */ }
+    return;
+  }
+  if (act === 'go') {
+    const clip = getClip(clipId);
+    if (!clip) return void (await client.sendMessage(chatId, 'Clip not found.'));
+    const d = draftFor(chatId, clipId);
+    drafts.delete(`${chatId}:${clipId}`);
+    await client.editMessageText(chatId, messageId, `⏳ Rendering "#${clip.ord} ${clip.title ?? ''}"…`);
+    const { enqueueRender } = await import('../services/pipeline.js');
+    enqueueRender(clipId, 'telegram', { options: d });
+    await watchRender(client, chatId, clipId, messageId);
+    return;
+  }
+  const d = draftFor(chatId, clipId);
+  if (act === 'wm') d.watermark.enabled = !d.watermark.enabled;
+  else if (act === 'hook') CYCLE_HOOK(d);
+  else if (act === 'fb') d.hook.allowFallback = !d.hook.allowFallback;
+  else if (act === 'music') CYCLE_MUSIC(d);
+  else if (act === 'duck') d.backgroundMusic.voiceDucking = !d.backgroundMusic.voiceDucking;
+  else if (act === 'subs') CYCLE_SUBS(d);
+  else if (act === 'creative') d.creative.mode = d.creative.mode === 'adaptive' ? 'basic' : 'adaptive';
+  else if (act === 'qa') d.creative.qualityReview = !d.creative.qualityReview;
+  else if (act.startsWith('preset:')) {
+    const name = act.slice('preset:'.length);
+    const def = listRenderPresets().find((p) => p.name === name);
+    if (!def) {
+      await client.sendMessage(chatId, `Unknown preset "${escapeHtml(name)}".`);
+      return;
+    }
+    const base = defaultRenderOptions() as unknown as Record<string, unknown>;
+    const merged = deepMerge(base, def.options as unknown as Record<string, unknown>);
+    const validated = resolveRenderOptions(merged, null).options;
+    drafts.set(`${chatId}:${clipId}`, validated);
+  }
+  await showOptionsMenu(client, chatId, clipId, messageId);
+}
+
 async function handleCallback(client: TelegramClient, chatId: number, data: string, messageId: number): Promise<void> {
   const [action, clipId] = data.split(':');
-  if (action === 'render' && clipId) {
+  const act = data.split(':').slice(2).join(':');
+  if (action === 'tune' && clipId) {
+    await showOptionsMenu(client, chatId, clipId, messageId);
+  } else if (data.startsWith('tg:') && clipId) {
+    await handleOptionsCallback(client, chatId, clipId, act, messageId);
+  } else if (action === 'render' && clipId) {
     const clip = getClip(clipId);
     if (!clip) return void (await client.sendMessage(chatId, 'Clip not found.'));
     await client.editMessageText(chatId, messageId, `⏳ Rendering "#${clip.ord} ${clip.title ?? ''}"…`);

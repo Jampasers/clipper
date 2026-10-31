@@ -15,10 +15,28 @@ Control it from a web dashboard or a Telegram bot.
 3. **Analyse** — a routed LLM model finds content moments and highlight candidates from the transcript.
 4. **Score & refine** — each candidate is scored (hook, retention, emotion, clarity, payoff, length),
    boundaries are snapped to sentence edges and refined, then overlapping clips are deduplicated.
-5. **Render** — face-tracked reframe (9:16 / 1:1 / 16:9), animated captions via Remotion
-   (SRT/ASS still exported), H.264/AAC MP4 with `+faststart`, plus a QA pass (duration,
-   resolution, streams, size, sanity frame).
+5. **Render** — one FFmpeg pass: face-tracked reframe (9:16 / 1:1 / 16:9), watermark
+   overlays, animated captions via Remotion (SRT/ASS still exported), AI background music
+   with speech-aware ducking, H.264/AAC MP4 with `+faststart`, plus a QA pass (duration,
+   resolution, streams, size, sanity frame, loudness/true-peak).
 6. **Deliver** — preview or final in the browser, or push to Telegram.
+
+## AI editing features
+
+- **Hook intro** — the LLM picks an opening hook span (default 7s, deterministic fallback);
+  it is moved to the front and removed from the main body, so the clip length never changes.
+- **Dynamic subtitles** — the LLM assigns semantic roles (number, punchline, question, …) to
+  existing Whisper word timings; schema-validated, with animations and style modes
+  (`ai`, `bold`, `karaoke`, `kinetic`).
+- **Background music** — chosen by AI from your local music library (mood/genre/energy
+  metadata), mixed under the voice with `loudnorm` + ducking during speech.
+- **Watermarks** — PNG/WebP/SVG manager (SVG is sanitized and rasterized locally), multi-layer
+  overlay with per-render position/opacity/width overrides.
+- **Per-render options** — presets (`default_ai`, `clean`, `dynamic`, `minimal`) plus per-job
+  overrides from the dashboard or Telegram. Options are snapshotted per job; the creative plan
+  (hook, subtitle styling, music pick) is cached per clip+options, so re-renders are reproducible.
+- **Editing plan** — everything above is one inspectable plan per render (`editing_plans`), not
+  hidden global state.
 
 All AI steps are controlled: the model returns structured JSON only. It can never run shell
 commands or touch files; edits are validated against a fixed operation whitelist (`src/lib/tools.ts`).
@@ -74,6 +92,7 @@ The first transcription downloads the Whisper model (a few hundred MB for `base`
 ## Documentation
 
 - [Architecture](docs/architecture.md) — modules, data model, job pipeline.
+- [AI Creative Editor](docs/creative-editor.md) — adaptive mode: EDL, Creative Director, b-roll/SFX, quality review.
 - [Setup](docs/setup.md) — install and first run, in depth.
 - [Configuration](docs/configuration.md) — every `.env` variable and settings group.
 - [AI models](docs/ai-models.md) — task routing, prompts, safety model.

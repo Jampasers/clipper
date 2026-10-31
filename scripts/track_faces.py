@@ -236,8 +236,8 @@ def main():
                         min(sw, x + int(w * 0.85)), min(sh, y + h),
                     ))
                     talk = max(0.0, mouth - full)
-                faces.append({"cx": (x + w * 0.5) / sw, "area": w * h, "talk": talk})
-            samples.append({"t": t, "faces": faces, "cut": cut})
+                faces.append({"cx": (x + w * 0.5) / sw, "area": w * h, "talk": talk, "w": float(w)})
+            samples.append({"t": t, "faces": faces, "cut": cut, "sw": sw})
             if debug:
                 sys.stderr.write(f"t={t:.2f} cut={cut:.1f} faces={[(round(f['cx'],3), round(f['talk'],1)) for f in faces]}\n")
             prev_gray = small
@@ -248,8 +248,17 @@ def main():
 
     out = pick_anchors(samples, speech)
 
+    # attach the tracked face width (fraction of frame width) so callers can
+    # classify shot sizes; nearest sample face to the anchor center wins
+    sample_by_t = {round(s["t"], 2): s for s in samples}
     for (t, cx, n) in out:
-        emit({"type": "point", "t": round(t, 3), "cx": round(cx, 4), "faces": n})
+        s = sample_by_t.get(round(t, 2))
+        w = 0.0
+        if s and s["faces"]:
+            best = min(s["faces"], key=lambda f: abs(f["cx"] - cx))
+            w = best["w"] if "w" in best else (best.get("area", 0) ** 0.5)
+            w = w / s["sw"] if s.get("sw") else 0.0
+        emit({"type": "point", "t": round(t, 3), "cx": round(cx, 4), "faces": n, "w": round(w, 4)})
     emit({"type": "done", "samples": len(out)})
 
 

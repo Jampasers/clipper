@@ -7,6 +7,10 @@ export const PROMPT_TASKS = [
   'clip_boundary',
   'title_generation',
   'subtitle_analysis',
+  'hook_generation',
+  'subtitle_plan',
+  'music_selection',
+  'creative_direction',
 ] as const;
 export type PromptTask = (typeof PROMPT_TASKS)[number];
 
@@ -17,6 +21,10 @@ export const PROMPT_NAMES: Record<PromptTask, string> = {
   clip_boundary: 'Clip Boundary Optimization',
   title_generation: 'Title Generation',
   subtitle_analysis: 'Subtitle Analysis',
+  hook_generation: 'Opening Hook Generation',
+  subtitle_plan: 'Subtitle Styling Plan',
+  music_selection: 'Background Music Selection',
+  creative_direction: 'Creative Direction (EDL)',
 };
 
 export const DEFAULT_PROMPTS: Record<PromptTask, string> = {
@@ -125,6 +133,89 @@ Select up to 8 words or short phrases (per clip) that deserve visual emphasis be
 
 Respond ONLY with JSON:
 {"emphasis": ["word1", "word2"], "notes": "brief note"}`,
+  hook_generation: `You are a short-form video editor choosing an opening hook (a 5-8 second teaser) for a clip.
+
+CLIP WINDOW: {{clip_start}}s -> {{clip_end}}s ({{clip_duration}}s long). Target hook duration: {{target_duration}}s (between {{min_duration}} and {{max_duration}} seconds).
+
+NUMBERED WORDS inside the clip (index: text [start-end]s):
+{{words}}
+
+CONTEXT BEFORE THE CLIP (do not pick from here, only to understand meaning):
+{{context}}
+
+Pick hook candidates that are short teasers moved to the FRONT of the clip. Requirements:
+- The candidate is a self-contained intriguing statement, punchline, surprising fact, strong claim or question.
+- It must be understandable on its own and must not cut a word or sentence unnaturally.
+- Prefer candidates that create curiosity or emotional intensity.
+- Use word indexes for exact boundaries (start_word is the first word of the candidate, end_word is the last word, inclusive).
+- Never pick words that need the surrounding context to make sense.
+
+Respond ONLY with JSON:
+{"candidates": [{"start_word": <index>, "end_word": <index>, "score": 0-100, "reason": "why this hook works"}]}
+
+Return 1-5 candidates, best first. If nothing works as a hook, return {"candidates": []}.`,
+  subtitle_plan: `You are an expert subtitle designer for short-form videos. Given the transcript words of a clip, choose which words deserve visual emphasis and how they should look.
+
+WORDS (index: text, grouped per subtitle line; indexes are global):
+{{words}}
+
+Rules:
+- Never change the text: you only assign style to existing word indexes.
+- Highlight only words that truly carry meaning: key nouns/verbs, numbers and amounts, emotional expressions, punchlines, questions, conclusions.
+- Do NOT highlight random or filler words. At most 20% of the words, hard cap 40 highlighted words.
+- role must be one of: important, number, emotion, punchline, hook, question, conclusion (skip the word entirely if it is just normal).
+- Optional overrides: "color" (hex like #FFD400), "scale" (0.9-1.8), "animation" (pop|bounce|fade|slide|shake|none), "priority" (1-10).
+- Use the same language as the transcript. Keep emphasis natural: short bursts, not entire sentences.
+
+Respond ONLY with JSON:
+{"words": [{"index": 12, "role": "number", "color": "#FFD400", "scale": 1.25, "animation": "pop", "priority": 8}]}`,
+  music_selection: `You choose background music for a short-form video clip. Only pick from the provided library — never invent assets.
+
+VIDEO:
+- Title: {{title}}
+- Clip length: {{clip_duration}}s
+- Transcript excerpt: {{transcript}}
+
+MUSIC LIBRARY (id | name | mood | genre | energy 1-5 | bpm):
+{{library}}
+
+Decide:
+1. Is background music appropriate at all? (No for sensitive/emotional testimonies where music distracts, or when nothing fits.)
+2. If yes, pick the single best matching asset id.
+
+Respond ONLY with JSON:
+{"use_music": true, "asset_id": "...", "reason": "short reason", "mood": "one-word mood"}`,
+  creative_direction: `You are the creative director of a short-form video. You receive analysis data plus a deterministic baseline "creative plan" (an EDL — edit decision list). Improve pacing and on-screen storytelling by editing that JSON plan.
+
+CLIP:
+- Title: {{title}}
+- Output duration: {{duration}}s (every timestamp below is on this OUTPUT timeline, 0..{{duration}})
+- Aspect: {{aspect}}
+- Hook zone: {{hook}}
+- Scene analysis: {{scene_summary}}
+- Speech rate: {{speech_rate}} words/s
+
+TRANSCRIPT EXCERPT (output-timeline timestamps):
+{{transcript}}
+
+BASELINE PLAN (this exact JSON shape):
+{{baseline}}
+
+B-ROLL LIBRARY (id | name | tags | kind | duration s). Reference with "assetId", or write a short "query" in the transcript's language. Never invent ids that are not listed:
+{{broll_library}}
+
+SOUND LIBRARY (id | name | tags | duration s). Only reference listed ids:
+{{sfx_library}}
+
+RULES:
+- Respond ONLY with one JSON object. Include a field only when you change it; an included array REPLACES the baseline array entirely. Omitted fields keep the baseline value.
+- Allowed top-level fields: style, framings, titles, lowerThirds, statCards, callouts, broll, sfx, emphasis, music, audio.
+- Timestamps are seconds, start < end, inside [0, {{duration}}]. Graphics last 0.6-6s. At most 1 title (at the start), 4 lower thirds, 3 stat cards, 3 callouts, 20 b-roll placements, 12 sfx, 40 emphasis words.
+- Place b-roll only where it genuinely illustrates a phrase, 1-6s each, aligned with its sentence. No match means no b-roll.
+- Emphasis words must appear verbatim in the transcript excerpt.
+- Do not overlap a title, stat card and callout at the same moment.
+- Never output ffmpeg, shell commands, file paths, code or JSX — only the schema fields above.
+- Keep it tasteful: fewer, well-timed graphics beat many.`,
 };
 
 export function getPromptRows() {

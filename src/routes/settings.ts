@@ -13,7 +13,7 @@ import { logger } from '../lib/log.js';
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
 
-const GROUPS: SettingsGroup[] = ['ai', 'clipping', 'scoring', 'subtitles', 'reframe', 'render', 'telegram', 'pipeline'];
+const GROUPS: SettingsGroup[] = ['ai', 'clipping', 'scoring', 'subtitles', 'reframe', 'render', 'telegram', 'pipeline', 'watermark', 'hook', 'music'];
 
 function publicAiSettings() {
   const ai = getSettings('ai');
@@ -31,6 +31,9 @@ settingsRouter.get('/', (_req, res) => {
     render: all.render,
     telegram: all.telegram,
     pipeline: all.pipeline,
+    watermark: all.watermark,
+    hook: all.hook,
+    music: all.music,
     routing: all.ai.routing,
   });
 });
@@ -52,7 +55,7 @@ settingsRouter.put('/:group', (req, res) => {
     delete body.api_key_set;
     validateAiPatch(body);
   }
-  if (group === 'scoring' || group === 'clipping' || group === 'render') validateNumbers(group, body);
+  if (group === 'scoring' || group === 'clipping' || group === 'render' || group === 'hook' || group === 'music' || group === 'watermark') validateNumbers(group, body);
   const updated = setSettings(group, body);
   logger.info('SYSTEM', `settings updated: ${group}`);
   if (group === 'ai') return res.json(publicAiSettings());
@@ -104,7 +107,7 @@ settingsRouter.get('/ai/models', async (_req, res, next) => {
 });
 
 settingsRouter.get('/ai/routing', (_req, res) => {
-  const tasks = ['highlight_detection', 'clip_scoring', 'clip_boundary', 'title_generation', 'subtitle_analysis', 'content_analysis'] as const;
+  const tasks = ['highlight_detection', 'clip_scoring', 'clip_boundary', 'title_generation', 'subtitle_analysis', 'content_analysis', 'hook_generation', 'subtitle_plan', 'music_selection'] as const;
   res.json(Object.fromEntries(tasks.map((t) => [t, modelForTask(t)])));
 });
 

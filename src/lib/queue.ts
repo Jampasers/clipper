@@ -2,6 +2,7 @@ import { q, J } from './sqlite.js';
 import { nanoid } from 'nanoid';
 import { logger } from './log.js';
 import { config } from '../config.js';
+import { killJob } from './ffmpeg.js';
 
 /**
  * Job queue. Default driver is SQLite (no external service needed for a
@@ -83,6 +84,7 @@ export function retryJob(id: string): boolean {
 export function cancelJob(id: string): boolean {
   const job = getJob(id);
   if (!job || job.status === 'done') return false;
+  killJob(id); // terminate a running ffmpeg child, if any
   q.run("UPDATE jobs SET status = 'failed', error = 'cancelled by user', finished_at = datetime('now') WHERE id = ?", id);
   return true;
 }
@@ -115,6 +117,7 @@ export async function processOne(): Promise<boolean> {
     logger.error('QUEUE', `${fresh.type} job ${fresh.id} failed: ${message}`);
     // Re-read: attempts/status may have changed while the handler ran (cancel/retry).
     const cur = getJob(fresh.id) ?? fresh;
+    if (cur.status === 'failed' && cur.error === 'cancelled by user') return true; // user cancel wins
     const maxed = cur.attempts >= cur.max_attempts;
     q.run(
       `UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE id = ?`,

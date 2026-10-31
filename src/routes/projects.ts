@@ -162,7 +162,12 @@ mediaRouter.use(requireAuth);
 mediaRouter.get('/:scope/:file', (req, res) => {
   const scope = req.params.scope as string;
   const file = req.params.file as string;
-  const scopeMap: Record<string, string> = { previews: config.dirs.preview, outputs: config.dirs.output };
+  const scopeMap: Record<string, string> = {
+    previews: config.dirs.preview,
+    outputs: config.dirs.output,
+    watermarks: path.join(config.dirs.assets, 'watermarks'),
+    music: path.join(config.dirs.assets, 'music'),
+  };
   const dir = scopeMap[scope];
   if (!dir) return res.status(404).end();
   const safe = path.basename(file);

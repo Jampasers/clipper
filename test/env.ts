@@ -14,6 +14,7 @@ process.env.PROJECT_DIR = path.join(base, 'projects');
 process.env.TEMP_DIR = path.join(base, 'temp');
 process.env.PREVIEW_DIR = path.join(base, 'previews');
 process.env.OUTPUT_DIR = path.join(base, 'outputs');
+process.env.ASSET_DIR = path.join(base, 'assets');
 process.env.ADMIN_USERNAME = 'admin';
 process.env.ADMIN_PASSWORD = 'testpass123';
 process.env.SESSION_SECRET = 'test-secret-0123456789abcdef0123456';

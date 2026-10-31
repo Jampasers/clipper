@@ -23,6 +23,9 @@ everyone else, including groups).
 | `/start`, `/help` | Command reference. |
 | `/projects` | Recent projects with status. |
 | `/clips` | Inline buttons for the clip candidates of the latest READY project (select / score / change order). |
+| ▶️ button | Renders that clip with the default render options and sends the file back. |
+| ⚙️ **Tune** button | Per-clip render options before rendering: watermarks on/off, hook duration (off → 3 → 5 → 7 → 10s), fallback, AI music, voice ducking, subtitle style (off → ai → bold → karaoke → kinetic), 🧠 Creative (adaptive/basic) and 🔍 QA (on/off) plus the built-in presets. |
+| `/creative` (alias `/config`) | Shows the current creative defaults: mode, quality review, graphics overlay and aspect ratio. |
 | `/render` | Renders all **selected** clips (kind `telegram`) and sends the files back. |
 | `/health` | Same health checks as the dashboard. |
 

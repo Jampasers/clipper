@@ -8,6 +8,8 @@ import { logger } from '../lib/log.js';
 export interface TrackPoint {
   t: number;
   cx: number;
+  /** mean tracked face width as a fraction of the frame width (0 when unknown) */
+  w?: number;
 }
 
 export interface Frame {
@@ -109,7 +111,7 @@ export async function planReframe(
     return { aspect, cropW, cropH, frames: [{ t: 0, cx: fallbackCx }], usedTracking: false };
   }
 
-  const points = await trackFaces(videoPath, start, end, rf.sample_interval, speech);
+  const points = await trackFaceSamples(videoPath, start, end, rf.sample_interval, speech);
   if (points.length === 0) {
     logger.info('VIDEO', `no faces found in ${path.basename(videoPath)} ${start}-${end}s, using static center crop`);
     return { aspect, cropW, cropH, frames: [{ t: 0, cx: fallbackCx }], usedTracking: false };
@@ -131,7 +133,8 @@ export async function planReframe(
   return { aspect, cropW, cropH, frames, usedTracking: true };
 }
 
-function trackFaces(videoPath: string, start: number, end: number, interval: number, speech: { start: number; end: number }[]): Promise<TrackPoint[]> {
+/** Sample face centers (and widths) over [start,end]; shared by reframing and scene analysis. */
+export function trackFaceSamples(videoPath: string, start: number, end: number, interval: number, speech: { start: number; end: number }[]): Promise<TrackPoint[]> {
   return new Promise((resolve, reject) => {
     const script = path.join(config.root, 'scripts', 'track_faces.py');
     const args = [
@@ -153,7 +156,7 @@ function trackFaces(videoPath: string, start: number, end: number, interval: num
         if (!line) continue;
         try {
           const obj = JSON.parse(line);
-          if (obj.type === 'point') points.push({ t: obj.t, cx: obj.cx });
+          if (obj.type === 'point') points.push({ t: obj.t, cx: obj.cx, w: typeof obj.w === 'number' ? obj.w : 0 });
         } catch { /* ignore */ }
       }
     });
@@ -178,9 +181,13 @@ function trackFaces(videoPath: string, start: number, end: number, interval: num
 
 /**
  * Build the FFmpeg crop expression + x position expression from keyframes.
- * Simplifies to a static crop when there's a single keyframe.
+ * Simplify to a static crop when there's a single keyframe.
+ *
+ * `timeOffset` shifts the expression clock: keyframes are clip-relative, but a
+ * segment input seeked with -ss restarts its filter timestamps at 0 — pass
+ * (segmentSourceStart - clipStart) so the pan stays aligned.
  */
-export function cropFilter(plan: ReframePlan, outputSize: { w: number; h: number }): { crop: string; x: string } {
+export function cropFilter(plan: ReframePlan, outputSize: { w: number; h: number }, timeOffset = 0): { crop: string; x: string } {
   const crop = `crop=${plan.cropW}:${plan.cropH}`;
   if (plan.frames.length <= 1) {
     const x = Math.round(Math.min(plan.cropW ? plan.frames[0].cx - plan.cropW / 2 : 0, 1e9));
@@ -188,6 +195,8 @@ export function cropFilter(plan: ReframePlan, outputSize: { w: number; h: number
   }
   // Build cascaded if() expression on t.
   const f = plan.frames;
+  const off = Math.abs(timeOffset) < 0.001 ? null : timeOffset.toFixed(3);
+  const clock = off === null ? 't' : `(t+${off})`;
   let expr = String(Math.max(0, Math.round(f[f.length - 1].cx - plan.cropW / 2)));
   for (let i = f.length - 2; i >= 0; i--) {
     const x0 = Math.max(0, Math.round(f[i].cx - plan.cropW / 2));
@@ -195,8 +204,8 @@ export function cropFilter(plan: ReframePlan, outputSize: { w: number; h: number
     const t0 = f[i].t;
     const t1 = f[i + 1].t;
     const span = Math.max(0.001, t1 - t0);
-    const lerp = `(${x0}+(${x1}-${x0})*(t-${t0.toFixed(3)})/${span.toFixed(3)})`;
-    expr = `if(lt(t,${t1.toFixed(3)}),${lerp},${expr})`;
+    const lerp = `(${x0}+(${x1}-${x0})*(${clock}-${t0.toFixed(3)})/${span.toFixed(3)})`;
+    expr = `if(lt(${clock},${t1.toFixed(3)}),${lerp},${expr})`;
   }
   // commas separate filters in a -vf chain; escape them so the expression
   // stays a single crop argument

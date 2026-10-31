@@ -25,6 +25,7 @@ Two layers: **environment variables** (`.env`, read at startup) and **settings g
 | `TEMP_DIR` | `./storage/temp` | Scratch (extracted audio, part files). |
 | `PREVIEW_DIR` | `./storage/previews` | Rendered previews. |
 | `OUTPUT_DIR` | `./storage/outputs` | Final renders. |
+| `ASSET_DIR` | `./storage/assets` | Watermark images (`watermarks/`) and the music library (`music/`). |
 | `FFMPEG_PATH` | `ffmpeg` | FFmpeg executable. |
 | `FFPROBE_PATH` | `ffprobe` | FFprobe executable. |
 | `PYTHON_PATH` | `python` | Python for the whisper / opencv sidecars. |
@@ -43,7 +44,8 @@ Each group is a JSON blob merged over defaults in `src/lib/settings.ts`.
 - `temperature`, `max_tokens`, `timeout_ms`, `request_retries`
 - `routing` — per-task model overrides:
   `content_analysis`, `highlight_detection`, `clip_scoring`, `clip_boundary`,
-  `title_generation`, `subtitle_analysis`
+  `title_generation`, `subtitle_analysis`, `hook_generation`, `subtitle_plan`,
+  `music_selection`
 
 Endpoints: `POST /api/settings/ai/test` (connectivity), `POST /api/settings/ai/test-model`
 (send a prompt to a specific model), `GET /api/settings/ai/models` (list router models).
@@ -80,6 +82,28 @@ Plain weights summed per candidate (higher = more influential):
 - `width`/`height` (final, default 1080×1920), `fps`, `vcodec libx264`, `acodec aac`,
   `crf`, `bitrate` (optional override), `audio_bitrate`, `preset`, `pixel_format`,
   `container`, and `preview_*` variants (default 540×960, crf 30).
+
+### `watermark`
+- `enabled` (overlay watermarks on renders by default), `default_position` (`top-left`,
+  `top-right`, `bottom-left`, `bottom-right`, `center`, `custom`), `default_width_percent`,
+  `default_opacity`, `default_margin`. Manage images under **Assets > Watermarks**
+  (`/api/assets/watermarks`); per-render overrides never edit these rows.
+
+### `hook`
+- `enabled` (AI opening hook), `duration` (target seconds, default 7, render range 3–15),
+  `min_duration`, `max_duration`, `allow_fallback` (deterministic candidate when AI fails).
+
+### `creative`
+- `mode` (`adaptive` | `basic` — adaptive runs the Creative Director + EDL pipeline),
+  `quality_review` (static + media review with one bounded repair), `graphics`
+  (Remotion graphics overlay: titles/cards/callouts/progress bar). See
+  [AI Creative Editor](creative-editor.md). Presets `clean`/`minimal` force `basic`.
+
+### `music`
+- `enabled`, `selection` (`ai` | `none` | a music asset id — also set per render),
+  `volume_db` (BGM gain offset), `duck_db` (lower BGM while someone speaks),
+  `fade_in` / `fade_out` (seconds), `voice_ducking`, `voice_target_lufs` (-16),
+  `music_target_lufs` (-17), `true_peak_db` (-1 dBTP limiter ceiling).
 
 ### `telegram`
 - `enabled`, `send_progress`.

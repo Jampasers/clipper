@@ -12,7 +12,7 @@ export interface TranscriptSegment {
   start: number;
   end: number;
   text: string;
-  words?: { start: number; end: number; word: string }[];
+  words?: { start: number; end: number; word: string; style?: import('./subtitle-plan.js').WordStyle }[];
 }
 
 export interface TranscriptData {

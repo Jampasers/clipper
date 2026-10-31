@@ -1,5 +1,20 @@
 import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { config } from '../config.js';
+
+const activeChildren = new Map<string, ChildProcess>();
+
+/** Kill the ffmpeg process registered for a job (cancellation). */
+export function killJob(jobId: string): boolean {
+  const child = activeChildren.get(jobId);
+  if (!child) return false;
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    /* already dead */
+  }
+  return true;
+}
 
 export interface MediaProbe {
   duration: number;
@@ -22,10 +37,11 @@ export interface MediaProbe {
 export function runCmd(
   cmd: string,
   args: string[],
-  opts: { input?: string; onStderr?: (line: string) => void; onStdout?: (line: string) => void; env?: NodeJS.ProcessEnv } = {}
+  opts: { input?: string; onStderr?: (line: string) => void; onStdout?: (line: string) => void; env?: NodeJS.ProcessEnv; jobId?: string } = {}
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { env: opts.env ?? process.env });
+    if (opts.jobId) activeChildren.set(opts.jobId, child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => {
@@ -44,8 +60,14 @@ export function runCmd(
     });
     if (opts.input) child.stdin.write(opts.input);
     child.stdin.end();
-    child.on('error', (err) => resolve({ code: -1, stdout, stderr: stderr + String(err) }));
-    child.on('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    child.on('error', (err) => {
+      if (opts.jobId) activeChildren.delete(opts.jobId);
+      resolve({ code: -1, stdout, stderr: stderr + String(err) });
+    });
+    child.on('close', (code) => {
+      if (opts.jobId) activeChildren.delete(opts.jobId);
+      resolve({ code: code ?? -1, stdout, stderr });
+    });
   });
 }
 

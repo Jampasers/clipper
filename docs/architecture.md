@@ -24,8 +24,10 @@ src/
   routes/
     auth.ts                 login/logout/me/change-password
     projects.ts             upload (multer), CRUD, source stream, media files, jobs
-    clips.ts                list/get/patch/preview/render/reject/ai-edit
+    clips.ts                list/get/patch/preview/render/reject/ai-edit (per-render options)
     settings.ts             settings CRUD, prompt CRUD, AI test endpoints
+    assets.ts               watermark + music library CRUD (uploads, sanitized SVG)
+    render.ts               render presets, options validation, cached editing plans
     dashboard.ts            counts + recent activity
   services/
     projects.ts             createProject (moves upload into projects/<id>/)
@@ -35,10 +37,20 @@ src/
     pipeline.ts             job handlers wiring the whole project flow
     clips.ts                clip persistence, selection (top-N), view mapping
     reframe.ts              face tracking (scripts/track_faces.py) -> crop keyframes
-    subtitles.ts            segment->cue building, ASS/SRT, emphasis presets
-    render.ts               ffmpeg arg building, render, QA checks
+    subtitles.ts            segment->cue building (timeline-aware), ASS/SRT, emphasis presets
+    render.ts               render entry, QA checks (structure + loudness)
+    render-options.ts       per-render options schema, presets, snapshots, plan hash
+    editing-plan.ts         one cached AI plan per (clip, options hash): hook, subtitle styles, music
+    timeline.ts             hook-reordered output timeline + source/output time mapping
+    hook.ts                 AI hook candidates (word-index based), validation, fallback
+    subtitle-plan.ts        AI word styling plan (roles/animations), deterministic fallback
+    music.ts                AI music selection + deterministic fallback
+    assets.ts               watermark/music files, strict SVG sanitizer, watermark layer specs
+    render-graph.ts         deterministic filter_complex builder (timeline, overlays, ducking mix)
+    caption-render.ts       Remotion transparent caption overlay (ProRes 4444)
     clip-edit.ts            natural language edit -> whitelisted ops -> clip patch
-  telegram/                 long-polling bot (token-gated to one numeric user id)
+  telegram/                 long-polling bot (token-gated to one numeric user id),
+                            clip tuning via inline buttons (watermark/hook/music/subtitles)
   workers/worker.ts         registers all handlers + background polling loop
 scripts/
   transcribe.py             faster-whisper worker (JSON-lines progress on stdout)
@@ -61,6 +73,11 @@ test/                       custom runner; unit / api / e2e
 | `settings` | one row per settings group, JSON merged over defaults. |
 | `prompts` | editable prompt templates keyed by AI task. |
 | `logs` | structured job/system log lines surfaced in Settings > Logs. |
+| `watermarks` | watermark metadata + file paths (png/webp/svg; svg rasterized via Chrome). |
+| `music_assets` | music library metadata (mood/genre/energy feed the AI selector). |
+| `editing_plans` | cached AI editing plan per (clip_id, options_hash). |
+| `render_presets` | user-saved render option presets (built-ins live in code). |
+| `render_snapshots` | the resolved options frozen per render job. |
 
 ## Pipeline
 
@@ -68,6 +85,18 @@ test/                       custom runner; unit / api / e2e
 upload -> probe -> [queue] transcription -> analysis -> candidate_generation
         -> scoring (score + boundary refine + dedup) -> READY (clips persisted, top-N selected)
 render: preview | final | telegram  (separate queue jobs, QA-checked)
+
+render job:
+  resolve render options (defaults -> preset -> request), snapshot them
+  -> editing plan (cache hit on clip_id+options_hash, else AI):
+       hook span -> output timeline (hook moved to front, body unchanged)
+       subtitle styling plan (word indexes only, schema-validated)
+       music selection from the local library
+  -> reframe keyframes -> caption overlay (Remotion, output timeline)
+  -> one FFmpeg pass: crop/fps/split/trim/concat/scale -> subtitles -> caption
+     -> watermark overlays; audio trim/concat -> loudnorm -> BGM loudnorm ->
+     speech-window ducking -> mix -> limiter
+  -> QA: duration/resolution/streams/size/frame + loudness/true-peak
 ```
 
 Each stage is a job type registered in `src/workers/worker.ts`. `processOne()` claims the
@@ -79,7 +108,8 @@ driver for multi-process).
 
 - One OpenAI-compatible client (`src/lib/ai.ts`), base URL + key from settings.
 - `ai.routing` maps each task (`content_analysis`, `highlight_detection`, `clip_scoring`,
-  `clip_boundary`, `title_generation`, `subtitle_analysis`) to a model; requests retry on
+  `clip_boundary`, `title_generation`, `subtitle_analysis`, `hook_generation`,
+  `subtitle_plan`, `music_selection`) to a model; requests retry on
   5xx/429 and on malformed JSON, then fall back to `ai.fallback_model`.
 - `extractJson` tolerates code fences and *recovers truncated JSON* (models occasionally cut
   off mid-array; we close brackets and drop the incomplete last element).

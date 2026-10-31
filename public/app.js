@@ -67,6 +67,8 @@ const routes = {
   '/settings/telegram': 'settingsTelegram',
   '/settings/storage': 'settingsStorage',
   '/settings/system': 'settingsSystem',
+  '/assets/watermarks': 'assetsWatermarks',
+  '/assets/music': 'assetsMusic',
 };
 const paramRoutes = {
   '/projects/': 'projectDetail',
@@ -108,6 +110,7 @@ const NAV_ITEMS = [
   { group: 'AI', items: [{ label: 'Models & Routing', href: '/settings/ai' }, { label: 'Prompts', href: '/settings/prompts' }] },
   { group: 'Clipping', items: [{ label: 'Detection & Scoring', href: '/settings/clipping' }, { label: 'Boundaries', href: '/settings/clipping' }] },
   { group: 'Video', items: [{ label: 'Subtitles', href: '/settings/subtitles' }, { label: 'Reframe', href: '/settings/reframe' }, { label: 'Rendering', href: '/settings/render' }] },
+  { group: 'Assets', items: [{ label: '🖼 Watermarks', href: '/assets/watermarks' }, { label: '🎵 Music library', href: '/assets/music' }] },
   { group: '', items: [{ label: 'Telegram', href: '/settings/telegram' }] },
   { group: 'System', items: [{ label: 'Workers & Health', href: '/settings/system' }, { label: 'Storage & Logs', href: '/settings/storage' }] },
 ];
@@ -404,6 +407,32 @@ async clipDetail(hash) {
         </div>
         <div id="rBar" class="progress hidden" style="margin-top:8px;max-width:340px"><i></i></div>
         <div id="rTxt" class="hint mono hidden" style="margin-top:4px"></div></div>
+      <div class="card" id="optCard" style="margin-bottom:16px"><h2>Render options <span class="hint" style="font-weight:400">(this render only)</span></h2>
+        <div class="row" style="gap:14px;flex-wrap:wrap;align-items:flex-end">
+          <div><label>Preset</label><select id="optPreset" style="min-width:160px"></select></div>
+          <div class="checkbox"><input type="checkbox" id="optWm"><label for="optWm">Watermarks</label></div>
+          <div class="checkbox"><input type="checkbox" id="optHook"><label for="optHook">AI hook</label></div>
+          <div><label>Hook (s)</label><input type="number" id="optHookDur" min="3" max="15" step="0.5" style="width:80px"></div>
+          <div class="checkbox"><input type="checkbox" id="optHookFb"><label for="optHookFb">fallback</label></div>
+          <div class="checkbox"><input type="checkbox" id="optMusic"><label for="optMusic">BGM</label></div>
+          <div><label>Music</label><select id="optMusicSel" style="min-width:170px"></select></div>
+          <div class="checkbox"><input type="checkbox" id="optDuck"><label for="optDuck">duck voice</label></div>
+          <div class="checkbox"><input type="checkbox" id="optSubs"><label for="optSubs">Subtitles</label></div>
+          <div><label>Style</label><select id="optStyle">${['ai','bold','karaoke','kinetic'].map((s2) => `<option>${s2}</option>`).join('')}</select></div>
+          <div class="checkbox"><input type="checkbox" id="optAiHl"><label for="optAiHl">AI highlight</label></div>
+          <div class="checkbox"><input type="checkbox" id="optAnim"><label for="optAnim">animations</label></div>
+          <button class="btn small" id="optSavePreset">Save as preset</button>
+        </div>
+        <div class="row" style="gap:14px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+          <div><label>Duck dB</label><input type="number" id="optDuckDb" min="0" max="30" step="1" style="width:80px"></div>
+          <div><label>BGM vol dB</label><input type="number" id="optVolDb" min="-40" max="12" step="1" style="width:80px"></div>
+          <div><label>Fade in</label><input type="number" id="optFadeIn" min="0" max="10" step="0.1" style="width:80px"></div>
+          <div><label>Fade out</label><input type="number" id="optFadeOut" min="0" max="10" step="0.1" style="width:80px"></div>
+          <div id="wmIdList" class="row" style="gap:10px;flex-wrap:wrap"></div>
+          <div id="wmOverrideWrap" class="flex" style="display:none"><label>Watermark position (all)</label>
+            <select id="wmOverridePos"><option value="">asset default</option>${['bottom-right','bottom-left','top-right','top-left','center'].map((p) => `<option>${p}</option>`).join('')}</select></div>
+        </div>
+      </div>
       <div class="grid cols-2">
         <div class="card"><h2>Preview / output</h2>
           <video id="clipVid" controls preload="none"></video>
@@ -480,7 +509,8 @@ async clipDetail(hash) {
       $('#pvBtn').addEventListener('click', async () => {
         try {
           await api(`/api/clips/${id}`, { method: 'PATCH', body: { aspect: $('#aspectSel').value, subtitle_preset: $('#presSel').value } });
-          await api(`/api/clips/${id}/preview`, { method: 'POST' });
+          const { options, preset } = collectRenderOptions(id);
+          await api(`/api/clips/${id}/preview`, { method: 'POST', body: { options, preset } });
           toast('Preview rendering started'); poll(doPoll, 3000); doPoll();
         }
         catch (e) { toast(e.message, 'err'); }
@@ -488,7 +518,8 @@ async clipDetail(hash) {
       $('#rdBtn').addEventListener('click', async () => {
         try {
           await api(`/api/clips/${id}`, { method: 'PATCH', body: { aspect: $('#aspectSel').value, subtitle_preset: $('#presSel').value } });
-          await api(`/api/clips/${id}/render`, { method: 'POST', body: { kind: 'final' } });
+          const { options, preset } = collectRenderOptions(id);
+          await api(`/api/clips/${id}/render`, { method: 'POST', body: { kind: 'final', options, preset } });
           toast('Final render started'); poll(doPoll, 3000); doPoll();
         }
         catch (e) { toast(e.message, 'err'); }
@@ -510,7 +541,40 @@ async clipDetail(hash) {
         $('#aiEditBtn').disabled = false;
       });
     };
+    function hydrateRenderOptions() {
+      if (!$('#optCard')) return;
+      api('/api/render/options').then((ro) => {
+        if (!$('#optCard')) return;
+        const selP = $('#optPreset');
+        selP.innerHTML = ['custom', ...ro.presets.map((p) => p.name)].map((n) => `<option>${esc(n)}</option>`).join('');
+        const musicSel = $('#optMusicSel');
+        musicSel.innerHTML = ['ai', 'none', ...ro.music.map((m) => m.id)].map((v) => {
+          const label = v === 'ai' ? 'AI pick' : v === 'none' ? 'None (silent)' : (ro.music.find((m) => m.id === v)?.name || v);
+          return `<option value="${v}">${esc(label)}</option>`;
+        }).join('');
+        $('#wmIdList').innerHTML = ro.watermarks.map((w) => `<div class="checkbox"><input type="checkbox" data-wm="${w.id}" checked><label>${esc(w.name)}</label></div>`).join('') || '<span class="hint">no watermarks uploaded</span>';
+        const saved = loadOptState(id);
+        const st = saved?.options ?? ro.defaults;
+        if (saved?.preset && [...selP.options].some((o) => o.value === saved.preset)) selP.value = saved.preset;
+        applyOptionsToForm(st);
+        musicSel.value = st.backgroundMusic?.selection ?? 'ai';
+        selP.addEventListener('change', () => {
+          const def = ro.presets.find((p) => p.name === selP.value);
+          if (!def) return;
+          const merged = deepMergeOpt(ro.defaults, def.options);
+          applyOptionsToForm(merged);
+          musicSel.value = merged.backgroundMusic?.selection ?? 'ai';
+        });
+        $('#optSavePreset').addEventListener('click', async () => {
+          const name = prompt('Preset name (letters, digits, dashes)');
+          if (!name) return;
+          try { await api('/api/render/presets', { method: 'POST', body: { name, options: collectRenderOptions(id).options } }); toast('Preset saved'); }
+          catch (e) { toast(e.message, 'err'); }
+        });
+      }).catch(() => toast('Could not load render options', 'err'));
+    }
     render();
+    hydrateRenderOptions();
     // poll while rendering, but only re-render the page when the clip status
     // actually changes (keeps the player/inputs stable between ticks)
     const setRenderProgress = (job) => {
@@ -563,9 +627,9 @@ async clipDetail(hash) {
 async settingsAi() {
   const [s, models] = await Promise.all([
     api('/api/settings/ai'),
-    api('/api/ai/models').catch(() => ({ models: [] })),
+    api('/api/settings/ai/models').catch(() => ({ models: [] })),
   ]);
-  const tasks = ['highlight_detection', 'clip_scoring', 'clip_boundary', 'title_generation', 'subtitle_analysis', 'content_analysis'];
+  const tasks = ['highlight_detection', 'clip_scoring', 'clip_boundary', 'title_generation', 'subtitle_analysis', 'content_analysis', 'hook_generation', 'subtitle_plan', 'music_selection'];
   const opt = (val, m) => `<option ${m === val ? 'selected' : ''}>${esc(m)}</option>`;
   main.innerHTML = `
   <div class="pageHead"><div><h1>AI — Models & Routing</h1><p class="sub">9Router (OpenAI-compatible) configuration. API key stays on the server.</p></div></div>
@@ -948,7 +1012,7 @@ async settingsStorage() {
     <p class="hint">Large video files stay on disk — the database only stores metadata + paths.</p></div>
   <div class="card" style="margin-top:16px"><h2>Recent logs</h2>
     <div class="row" style="margin-bottom:10px">
-      <select id="logCat" style="width:180px"><option value="">All categories</option>${['AUTH','AI','TRANSCRIPTION','VIDEO','RENDER','TELEGRAM','QUEUE','SYSTEM'].map((c) => `<option>${c}</option>`).join('')}</select>
+      <select id="logCat" style="width:180px"><option value="">All categories</option>${['AUTH','AI','TRANSCRIPTION','VIDEO','RENDER','REVIEW','CAPTION','TELEGRAM','QUEUE','SYSTEM'].map((c) => `<option>${c}</option>`).join('')}</select>
       <button class="btn ghost small" id="logRefresh">Refresh</button>
     </div>
     <div id="logBox"></div></div>`;
@@ -1001,7 +1065,204 @@ async settingsSystem() {
   await load();
   poll(load, 5000);
 },
+
+/* ---------- assets: watermarks ---------- */
+async assetsWatermarks() {
+  const load = async () => {
+    const { watermarks } = await api('/api/assets/watermarks');
+    main.innerHTML = `
+    <div class="pageHead"><div><h1>Watermarks</h1><p class="sub">PNG, WebP or SVG (sanitized + rasterized). Enabled watermarks are overlaid on every render — per-render overrides never edit these files.</p></div></div>
+    <div class="card"><h2>Upload watermark</h2>
+      <div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div><label>File</label><input type="file" id="wmFile" accept=".png,.webp,.svg,image/png,image/webp,image/svg+xml"></div>
+        <div><label>Name (optional)</label><input id="wmName" placeholder="logo"></div>
+        <div><label>Position</label><select id="wmPos">${['bottom-right','bottom-left','top-right','top-left','center'].map((p) => `<option>${p}</option>`).join('')}</select></div>
+        <div><label>Width %</label><input type="number" id="wmWidth" value="18" min="1" max="100" style="width:90px"></div>
+        <div><label>Opacity</label><input type="number" id="wmOpacity" value="0.85" step="0.05" min="0" max="1" style="width:90px"></div>
+        <button class="btn" id="wmUpload">Upload</button>
+      </div>
+      <p class="hint">SVG must be self-contained (no external URLs/scripts); it is rasterized locally through Chrome on first use.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Library</h2>
+      ${watermarks.length ? `<table><tr><th></th><th>Name</th><th>Size</th><th>Position</th><th>Width %</th><th>Opacity</th><th>Enabled</th><th></th></tr>
+      ${watermarks.map((w) => `<tr data-wm="${w.id}">
+        <td><img src="/media/watermarks/${esc(w.file_path.split(/[\\\\/]/).pop())}" style="height:34px;border-radius:6px;background:var(--bg2)" onerror="this.style.visibility='hidden'"></td>
+        <td><input data-k="name" value="${esc(w.name)}" style="min-width:130px"></td>
+        <td class="mono hint">${w.width ?? '?'}×${w.height ?? '?'}</td>
+        <td><select data-k="default_position">${['bottom-right','bottom-left','top-right','top-left','center'].map((p) => `<option ${p === w.default_position ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
+        <td><input type="number" data-k="width_percent" value="${w.width_percent}" min="1" max="100" style="width:80px"></td>
+        <td><input type="number" data-k="opacity" value="${w.opacity}" step="0.05" min="0" max="1" style="width:80px"></td>
+        <td><input type="checkbox" data-k="enabled" ${w.enabled ? 'checked' : ''}></td>
+        <td class="row" style="gap:6px"><button class="btn ghost small" data-save="${w.id}">Save</button><button class="btn ghost small" data-del="${w.id}">🗑</button></td>
+      </tr>`).join('')}</table>` : '<p class="hint">No watermarks yet.</p>'}
+    </div>`;
+    $('#wmUpload').addEventListener('click', async () => {
+      const f = $('#wmFile').files[0];
+      if (!f) return toast('Choose a file first', 'err');
+      const fd = new FormData();
+      fd.append('file', f);
+      if ($('#wmName').value.trim()) fd.append('name', $('#wmName').value.trim());
+      fd.append('position', $('#wmPos').value);
+      fd.append('width_percent', $('#wmWidth').value);
+      fd.append('opacity', $('#wmOpacity').value);
+      try {
+        toast('Uploading…');
+        await fetch('/api/assets/watermarks', { method: 'POST', body: fd, credentials: 'same-origin' }).then(async (r) => {
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        });
+        toast('Watermark added'); load();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+    $$('[data-save]').forEach((b) => b.addEventListener('click', async () => {
+      const row = b.closest('tr');
+      const body = {};
+      $$('[data-k]', row).forEach((el) => { body[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? parseFloat(el.value) : el.value; });
+      try { await api(`/api/assets/watermarks/${b.dataset.save}`, { method: 'PATCH', body }); toast('Saved'); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+    $$('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Delete this watermark?')) return;
+      try { await api(`/api/assets/watermarks/${b.dataset.del}`, { method: 'DELETE' }); toast('Deleted'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+  };
+  await load();
+},
+
+/* ---------- assets: music library ---------- */
+async assetsMusic() {
+  const load = async () => {
+    const { music } = await api('/api/assets/music');
+    main.innerHTML = `
+    <div class="pageHead"><div><h1>Music library</h1><p class="sub">Local, user-provided tracks only. Metadata drives AI selection; nothing is downloaded.</p></div></div>
+    <div class="card"><h2>Add track</h2>
+      <div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div><label>File</label><input type="file" id="mFile" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,audio/*"></div>
+        <div><label>Name</label><input id="mName" placeholder="Epic sunrise" style="min-width:140px"></div>
+        <div><label>Mood</label><input id="mMood" placeholder="motivational" style="width:130px"></div>
+        <div><label>Genre</label><input id="mGenre" placeholder="cinematic" style="width:130px"></div>
+        <div><label>Energy 1–5</label><input type="number" id="mEnergy" value="3" min="1" max="5" style="width:80px"></div>
+        <div><label>BPM</label><input type="number" id="mBpm" placeholder="—" style="width:80px"></div>
+        <button class="btn" id="mUpload">Upload</button>
+      </div>
+      <p class="hint">By uploading you confirm you have the rights to use the track. Mood/genre/energy are shown to the AI selector.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Library</h2>
+      ${music.length ? `<table><tr><th>Name</th><th>Mood</th><th>Genre</th><th>Energy</th><th>BPM</th><th>Duration</th><th>Enabled</th><th></th></tr>
+      ${music.map((m) => `<tr data-m="${m.id}">
+        <td><input data-k="name" value="${esc(m.name)}" style="min-width:140px"></td>
+        <td><input data-k="mood" value="${esc(m.mood ?? '')}" style="width:120px"></td>
+        <td><input data-k="genre" value="${esc(m.genre ?? '')}" style="width:110px"></td>
+        <td><input type="number" data-k="energy" value="${m.energy}" min="1" max="5" style="width:70px"></td>
+        <td><input type="number" data-k="bpm" value="${m.bpm ?? ''}" style="width:70px"></td>
+        <td class="mono hint">${m.duration ? m.duration.toFixed(1) + 's' : '—'}</td>
+        <td><input type="checkbox" data-k="enabled" ${m.enabled ? 'checked' : ''}></td>
+        <td class="row" style="gap:6px"><button class="btn ghost small" data-save="${m.id}">Save</button><button class="btn ghost small" data-del="${m.id}">🗑</button></td>
+      </tr>`).join('')}</table>` : '<p class="hint">No music yet — upload a track to enable AI background music.</p>'}
+    </div>`;
+    $('#mUpload').addEventListener('click', async () => {
+      const f = $('#mFile').files[0];
+      if (!f) return toast('Choose a file first', 'err');
+      const fd = new FormData();
+      fd.append('file', f);
+      const put = (k, id) => { const v = $(id).value.trim(); if (v) fd.append(k, v); };
+      put('name', '#mName'); put('mood', '#mMood'); put('genre', '#mGenre'); put('energy', '#mEnergy'); put('bpm', '#mBpm');
+      try {
+        toast('Uploading…');
+        await fetch('/api/assets/music', { method: 'POST', body: fd, credentials: 'same-origin' }).then(async (r) => {
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        });
+        toast('Track added'); load();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+    $$('[data-save]').forEach((b) => b.addEventListener('click', async () => {
+      const row = b.closest('tr');
+      const body = {};
+      $$('[data-k]', row).forEach((el) => {
+        if (el.type === 'checkbox') body[el.dataset.k] = el.checked;
+        else if (el.type === 'number') body[el.dataset.k] = el.value === '' ? null : parseFloat(el.value);
+        else body[el.dataset.k] = el.value.trim() || null;
+      });
+      try { await api(`/api/assets/music/${b.dataset.save}`, { method: 'PATCH', body }); toast('Saved'); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+    $$('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Delete this track?')) return;
+      try { await api(`/api/assets/music/${b.dataset.del}`, { method: 'DELETE' }); toast('Deleted'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+  };
+  await load();
+},
 };
+
+/* ---------- per-render options ---------- */
+const optKey = (clipId) => `avc-opt-${clipId}`;
+function loadOptState(clipId) {
+  try { return JSON.parse(localStorage.getItem(optKey(clipId)) || 'null'); } catch { return null; }
+}
+function saveOptState(clipId, st) {
+  try { localStorage.setItem(optKey(clipId), JSON.stringify(st)); } catch { /* storage full/disabled */ }
+}
+function deepMergeOpt(base, patch) {
+  const out = structuredClone(base);
+  const walk = (dst, src) => {
+    for (const [k, v] of Object.entries(src || {})) {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        dst[k] = dst[k] && typeof dst[k] === 'object' ? dst[k] : {};
+        walk(dst[k], v);
+      } else dst[k] = v;
+    }
+  };
+  walk(out, patch);
+  return out;
+}
+function applyOptionsToForm(o) {
+  if (!$('#optCard')) return;
+  $('#optWm').checked = o.watermark?.enabled !== false;
+  $('#optHook').checked = !!o.hook?.enabled;
+  $('#optHookDur').value = o.hook?.duration ?? 7;
+  $('#optHookFb').checked = o.hook?.allowFallback !== false;
+  $('#optMusic').checked = !!o.backgroundMusic?.enabled;
+  $('#optDuck').checked = o.backgroundMusic?.voiceDucking !== false;
+  $('#optVolDb').value = o.backgroundMusic?.volumeDb ?? 0;
+  $('#optDuckDb').value = o.backgroundMusic?.duckDb ?? 7;
+  $('#optFadeIn').value = o.backgroundMusic?.fadeIn ?? 0.8;
+  $('#optFadeOut').value = o.backgroundMusic?.fadeOut ?? 1.5;
+  $('#optSubs').checked = !!o.subtitles?.enabled;
+  $('#optStyle').value = o.subtitles?.style ?? 'ai';
+  $('#optAiHl').checked = o.subtitles?.aiHighlight !== false;
+  $('#optAnim').checked = o.subtitles?.animations !== false;
+  const ids = new Set(o.watermark?.ids ?? []);
+  $$('#wmIdList input').forEach((el) => { el.checked = ids.size ? ids.has(el.dataset.wm) : true; });
+}
+/** Read the options panel into a RenderOptions body + preset name, persisting per clip. */
+function collectRenderOptions(clipId) {
+  const checked = $$('#wmIdList input:checked').map((el) => el.dataset.wm);
+  const posOv = $('#wmOverridePos')?.value || '';
+  const num = (sel, dflt) => { const v = parseFloat($(sel).value); return Number.isFinite(v) ? v : dflt; };
+  const options = {
+    watermark: {
+      enabled: $('#optWm').checked,
+      ids: checked,
+      ...(posOv ? { overrides: Object.fromEntries(checked.map((wid) => [wid, { position: posOv }])) } : {}),
+    },
+    hook: { enabled: $('#optHook').checked, duration: num('#optHookDur', 7), allowFallback: $('#optHookFb').checked },
+    backgroundMusic: {
+      enabled: $('#optMusic').checked,
+      selection: $('#optMusicSel').value || 'ai',
+      voiceDucking: $('#optDuck').checked,
+      volumeDb: num('#optVolDb', 0),
+      duckDb: num('#optDuckDb', 7),
+      fadeIn: num('#optFadeIn', 0.8),
+      fadeOut: num('#optFadeOut', 1.5),
+    },
+    subtitles: { enabled: $('#optSubs').checked, style: $('#optStyle').value, aiHighlight: $('#optAiHl').checked, animations: $('#optAnim').checked, preset: null },
+  };
+  const preset = $('#optPreset').value && $('#optPreset').value !== 'custom' ? $('#optPreset').value : null;
+  saveOptState(clipId, { options, preset });
+  return { options, preset };
+}
 
 /* ---------- clip card ---------- */
 function clipCard(c) {

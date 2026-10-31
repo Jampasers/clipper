@@ -38,6 +38,7 @@ export const config = {
     temp: dir(process.env.TEMP_DIR, './storage/temp'),
     preview: dir(process.env.PREVIEW_DIR, './storage/previews'),
     output: dir(process.env.OUTPUT_DIR, './storage/outputs'),
+    assets: dir(process.env.ASSET_DIR, './storage/assets'),
   },
 
   ffmpeg: process.env.FFMPEG_PATH || 'ffmpeg',

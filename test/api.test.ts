@@ -132,6 +132,19 @@ export async function runApiTests(): Promise<() => Promise<void>> {
     config.telegram.allowedUserId = saved;
   });
 
+  test('b-roll and sfx asset routes expose the libraries and 404 unknown ids', async () => {
+    const b = await call('GET', '/api/assets/broll');
+    assertEquals(b.status, 200);
+    assert(Array.isArray(b.data.broll), 'broll list shape');
+    const s = await call('GET', '/api/assets/sfx');
+    assertEquals(s.status, 200);
+    assert(Array.isArray(s.data.sfx), 'sfx list shape');
+    assertEquals((await call('GET', '/api/assets/broll/nope')).status, 404);
+    assertEquals((await call('GET', '/api/assets/sfx/nope')).status, 404);
+    assertEquals((await call('DELETE', '/api/assets/broll/nope')).status, 404);
+    assertEquals((await call('PATCH', '/api/assets/sfx/nope', { name: 'x' })).status, 404);
+  });
+
   test('clip routes require auth and 404 on unknown clip', async () => {
     assertEquals((await call('GET', '/api/clips/nope')).status, 404);
     assertEquals((await call('POST', '/api/clips/nope/render', {} )).status, 404);

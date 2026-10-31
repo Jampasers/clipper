@@ -111,6 +111,51 @@ export interface PipelineSettings {
   word_timestamps: boolean;
 }
 
+export interface WatermarkSettings {
+  /** Watermarks render by default; a render job can override this per job. */
+  enabled: boolean;
+  default_position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' | 'custom';
+  default_width_percent: number;
+  default_opacity: number;
+  default_margin: number;
+}
+
+export interface HookSettings {
+  enabled: boolean;
+  /** Target hook duration in seconds (actual may differ to keep word boundaries natural). */
+  duration: number;
+  min_duration: number;
+  max_duration: number;
+  allow_fallback: boolean;
+}
+
+export interface MusicSettings {
+  enabled: boolean;
+  /** 'ai' | 'none' | <music asset id> */
+  selection: string;
+  voice_ducking: boolean;
+  /** Extra offset applied on top of the normalized music loudness (dB). */
+  volume_db: number;
+  /** Extra attenuation while dialogue is active (dB). */
+  duck_db: number;
+  fade_in: number;
+  fade_out: number;
+  voice_target_lufs: number;
+  /** BGM loudness when nobody is talking (LUFS). */
+  music_target_lufs: number;
+  /** True-peak ceiling for the final mix (dBTP, negative). */
+  true_peak_db: number;
+}
+
+export interface CreativeSettings {
+  /** 'basic' = classic behavior, 'adaptive' = Creative Director EDL (zoom/grade/graphics) */
+  mode: 'basic' | 'adaptive';
+  /** run the post-render quality review + bounded EDL repair / re-render */
+  quality_review: boolean;
+  /** render AI graphics (titles, lower thirds, stat cards, callouts, progress bar) */
+  graphics: boolean;
+}
+
 export interface AllSettings {
   ai: AISettings;
   clipping: ClippingSettings;
@@ -120,6 +165,10 @@ export interface AllSettings {
   render: RenderSettings;
   telegram: TelegramSettings;
   pipeline: PipelineSettings;
+  watermark: WatermarkSettings;
+  hook: HookSettings;
+  music: MusicSettings;
+  creative: CreativeSettings;
 }
 
 export const DEFAULT_SETTINGS: AllSettings = {
@@ -139,6 +188,10 @@ export const DEFAULT_SETTINGS: AllSettings = {
       title_generation: config.ai.defaultModel,
       subtitle_analysis: config.ai.defaultModel,
       content_analysis: config.ai.defaultModel,
+      hook_generation: config.ai.defaultModel,
+      subtitle_plan: config.ai.defaultModel,
+      music_selection: config.ai.defaultModel,
+      creative_direction: config.ai.defaultModel,
     },
   },
   clipping: {
@@ -225,6 +278,37 @@ export const DEFAULT_SETTINGS: AllSettings = {
     whisper_language: 'auto',
     word_timestamps: true,
   },
+  watermark: {
+    enabled: true,
+    default_position: 'bottom-right',
+    default_width_percent: 18,
+    default_opacity: 0.85,
+    default_margin: 36,
+  },
+  hook: {
+    enabled: true,
+    duration: 7,
+    min_duration: 3,
+    max_duration: 12,
+    allow_fallback: true,
+  },
+  music: {
+    enabled: true,
+    selection: 'ai',
+    voice_ducking: true,
+    volume_db: 0,
+    duck_db: 7,
+    fade_in: 0.8,
+    fade_out: 1.5,
+    voice_target_lufs: -16,
+    music_target_lufs: -17,
+    true_peak_db: -1,
+  },
+  creative: {
+    mode: 'adaptive',
+    quality_review: true,
+    graphics: true,
+  },
 };
 
 export type SettingsGroup = keyof AllSettings;
@@ -246,6 +330,10 @@ export function getAllSettings(): AllSettings {
     render: getSettings('render'),
     telegram: getSettings('telegram'),
     pipeline: getSettings('pipeline'),
+    watermark: getSettings('watermark'),
+    hook: getSettings('hook'),
+    music: getSettings('music'),
+    creative: getSettings('creative'),
   };
 }
 

@@ -11,7 +11,11 @@ export type AiTask =
   | 'clip_scoring'
   | 'clip_boundary'
   | 'title_generation'
-  | 'subtitle_analysis';
+  | 'subtitle_analysis'
+  | 'hook_generation'
+  | 'subtitle_plan'
+  | 'music_selection'
+  | 'creative_direction';
 
 export class AiError extends Error {
   status: number;

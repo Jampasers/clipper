@@ -58,7 +58,10 @@ clipsApi.post('/:id/preview', (req, res, next) => {
   try {
     const clip = getClip(String(req.params.id));
     if (!clip) return res.status(404).json({ error: 'clip not found' });
-    const job = enqueueRender(clip.id, 'preview');
+    const job = enqueueRender(clip.id, 'preview', {
+      options: req.body?.options ?? undefined,
+      preset: typeof req.body?.preset === 'string' ? req.body.preset : null,
+    });
     res.status(202).json({ ok: true, job });
   } catch (e) { next(e); }
 });
@@ -68,7 +71,10 @@ clipsApi.post('/:id/render', (req, res, next) => {
     const clip = getClip(String(req.params.id));
     if (!clip) return res.status(404).json({ error: 'clip not found' });
     const kind = (req.body?.kind as string) === 'telegram' ? 'telegram' : 'final';
-    const job = enqueueRender(clip.id, kind as 'final' | 'telegram');
+    const job = enqueueRender(clip.id, kind as 'final' | 'telegram', {
+      options: req.body?.options ?? undefined,
+      preset: typeof req.body?.preset === 'string' ? req.body.preset : null,
+    });
     res.status(202).json({ ok: true, job });
   } catch (e) { next(e); }
 });

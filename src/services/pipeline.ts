@@ -11,6 +11,8 @@ import {
   createClip, replaceProjectClips, selectClips, listClips, updateClip, getClip,
 } from './clips.js';
 import { renderClip } from './render.js';
+import { resolveRenderOptions, saveRenderSnapshot } from './render-options.js';
+import { getOrCreateEditingPlan } from './editing-plan.js';
 import { aiEmphasisWords } from './subtitles.js';
 import { probeVideo } from '../lib/ffmpeg.js';
 
@@ -28,9 +30,14 @@ export function enqueueProjectPipeline(projectId: string): void {
   enqueue('transcription', { project_id: projectId });
 }
 
-export function enqueueRender(clipId: string, kind: 'preview' | 'final' | 'telegram'): void {
+export function enqueueRender(
+  clipId: string,
+  kind: 'preview' | 'final' | 'telegram',
+  renderOpts?: { options?: unknown; preset?: string | null }
+): void {
   const clip = getClip(clipId);
   if (!clip) throw new Error(`clip ${clipId} not found`);
+  if (renderOpts?.options !== undefined) resolveRenderOptions(renderOpts.options, renderOpts.preset ?? null); // fail fast on bad input
   const active = q.get<{ n: number }>(
     "SELECT COUNT(*) AS n FROM jobs WHERE clip_id = ? AND type IN ('render_preview','render_final') AND status IN ('queued','running')",
     clipId
@@ -38,7 +45,7 @@ export function enqueueRender(clipId: string, kind: 'preview' | 'final' | 'teleg
   if ((active?.n ?? 0) > 0) throw new Error('a render is already queued or running for this clip');
   setProjectStatusSafe(clip.project_id, 'RENDERING');
   const type: JobType = kind === 'preview' ? 'render_preview' : kind === 'telegram' ? 'render_final' : 'render_final';
-  enqueue(type, { project_id: clip.project_id, clip_id: clipId, payload: { kind } });
+  enqueue(type, { project_id: clip.project_id, clip_id: clipId, payload: { kind, options: renderOpts?.options ?? null, preset: renderOpts?.preset ?? null } });
 }
 
 function setProjectStatusSafe(id: string, status: Parameters<typeof setProjectStatus>[1]) {
@@ -198,11 +205,12 @@ export function registerRenderJobs(): void {
     await doRender(job, 'preview', ctx);
   });
   registerHandler('render_final', async (job, ctx) => {
-    await doRender(job, (JSON.parse(job.payload || '{}') as { kind?: string }).kind === 'telegram' ? 'telegram' : 'final', ctx);
+    const payload = JSON.parse(job.payload || '{}') as { kind?: string };
+    await doRender(job, payload.kind === 'telegram' ? 'telegram' : 'final', ctx);
   });
 }
 
-async function doRender(job: { id: string; project_id: string | null; clip_id: string | null }, kind: 'preview' | 'final' | 'telegram', ctx: { report: (p: number) => void }) {
+async function doRender(job: { id: string; project_id: string | null; clip_id: string | null; payload: string | null }, kind: 'preview' | 'final' | 'telegram', ctx: { report: (p: number) => void }) {
   const p = getProjectFor({ project_id: job.project_id! });
   const clip = getClip(job.clip_id!);
   if (!clip) throw new Error(`clip ${job.clip_id} not found`);
@@ -210,24 +218,40 @@ async function doRender(job: { id: string; project_id: string | null; clip_id: s
   try {
     const transcript = loadTranscript(p.id);
     const meta = JSON.parse(p.meta || '{}') ?? {};
+    const payload = JSON.parse(job.payload || '{}') as { options?: unknown; preset?: string | null };
+    // Resolve options only when the job actually starts, then freeze them:
+    // settings changed while the job sat in the queue do not leak in.
+    const { options } = resolveRenderOptions(payload.options ?? null, payload.preset ?? null);
+    saveRenderSnapshot(job.id, clip.id, options);
     // Clip windows can extend past the source (AI boundary refine); clamp so
     // the QA duration check compares against what is actually renderable.
     const srcDur = Number(meta.duration) || 0;
     const start = Math.max(0, srcDur ? Math.min(clip.start, srcDur - 1) : clip.start);
     const end = srcDur ? Math.min(clip.end, srcDur) : clip.end;
-    const res = await renderClip({
-      clip: { id: clip.id, start, end, aspect: clip.aspect, subtitle_preset: clip.subtitle_preset },
+    const plan = await getOrCreateEditingPlan({
+      clipId: clip.id,
+      clipStart: start,
+      clipEnd: end,
+      title: clip.title ?? null,
+      transcript: transcript ?? null,
+      options,
+      aspect: (options.aspect ?? clip.aspect ?? getSettings('reframe').aspect) as '9:16' | '1:1' | '16:9',
+      sourcePath: p.source_path,
+      probe: meta,
+    });
+    await renderClip({
+      clip: { id: clip.id, start, end, aspect: clip.aspect, subtitle_preset: clip.subtitle_preset, title: clip.title ?? null },
       sourcePath: p.source_path,
       probe: meta,
       kind,
       transcript: transcript?.segments ?? null,
-      emphasisWords: JSON.parse(clip.emphasis || '[]'),
+      options,
+      plan,
+      jobId: job.id,
       onProgress: (pct) => ctx.report(pct),
     });
-    const boundary = JSON.parse(clip.boundary || 'null') ?? null;
     updateClip(clip.id, {
       status: kind === 'final' ? 'rendered_final' : 'previewed',
-      boundary,
     });
   } finally {
     // Clear RENDERING on success AND failure — otherwise the project polls forever.

@@ -5,12 +5,14 @@ import { getSettings, type SubtitlePreset } from '../lib/settings.js';
 import type { TranscriptSegment } from './transcribe.js';
 import { generate } from '../lib/ai.js';
 import { logger } from '../lib/log.js';
+import { clipSegmentsToTimeline, type TimelinePlan } from './timeline.js';
+import type { WordStyle } from './subtitle-plan.js';
 
 export interface SubtitleEvent {
   start: number; // clip-relative seconds
   end: number;
   lines: string[];
-  words: { text: string; start: number; end: number }[] | null; // clip-relative word timing
+  words: { text: string; start: number; end: number; style?: WordStyle }[] | null; // clip-relative word timing
   emphasisWords: string[];
 }
 
@@ -100,6 +102,49 @@ export function withEmphasis(events: SubtitleEvent[], words: string[]): Subtitle
     ev.emphasisWords = found;
   }
   return events;
+}
+
+/**
+ * Subtitle events over a (possibly hook-reordered) output timeline. Segments are
+ * clipped per timeline segment, shifted to output time, and never overlap.
+ */
+export function buildTimelineSubtitleEvents(
+  segments: TranscriptSegment[],
+  timeline: TimelinePlan,
+  preset: SubtitlePreset
+): SubtitleEvent[] {
+  const events: SubtitleEvent[] = [];
+  for (const { seg, outStart, outEnd, oStart, oEnd } of clipSegmentsToTimeline(segments, timeline)) {
+    if (outEnd - outStart < 0.15) continue;
+    let text = seg.text;
+    let words: SubtitleEvent['words'] = null;
+    if (seg.words && seg.words.length) {
+      const clipped = seg.words.filter((w) => w.end > oStart && w.start < oEnd);
+      if (clipped.length) {
+        const partial = clipped.length < seg.words.length;
+        if (partial) text = clipped.map((w) => w.word).join(' ');
+        const segDuration = Math.max(0.01, oEnd - oStart);
+        words = clipped.map((w) => ({
+          text: preset.uppercase ? w.word.toUpperCase() : w.word,
+          start: outStart + Math.max(0, w.start - oStart),
+          end: Math.min(outEnd, outStart + Math.min(segDuration, w.end - oStart)),
+          style: w.style,
+        }))
+          .filter((w) => w.end > w.start)
+          .map((w) => ({ ...w, end: Math.min(outEnd, w.end) }));
+      }
+    }
+    const display = preset.uppercase ? text.toUpperCase() : text;
+    const lines = wrapText(display, preset.max_chars_per_line, preset.max_words_per_line, preset.max_lines);
+    const emphasisWords = [...new Set((words ?? []).filter((w) => w.style).map((w) => w.text))].slice(0, 12);
+    events.push({ start: outStart, end: outEnd, lines, words, emphasisWords });
+  }
+  events.sort((a, b) => a.start - b.start);
+  // a cut point can truncate an event: shrink the earlier one so events never overlap
+  for (let i = 1; i < events.length; i++) {
+    if (events[i].start < events[i - 1].end) events[i - 1].end = events[i].start;
+  }
+  return events.filter((e) => e.end - e.start >= 0.12);
 }
 
 export function eventsToSrt(events: SubtitleEvent[]): string {

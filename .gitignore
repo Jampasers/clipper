@@ -8,3 +8,4 @@ storage/*
 .DS_Store
 cookie.txt
 .playwright-mcp/
+.playwright-cli/
