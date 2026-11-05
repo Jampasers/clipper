@@ -7,7 +7,9 @@ import { generateHookPlan, type HookPlan } from './hook.js';
 import { generateSubtitlePlan, collectClipWords, type SubtitleEditingPlan } from './subtitle-plan.js';
 import { selectMusic, type MusicPlan } from './music.js';
 import { analyzeScene, type SceneAnalysis } from './scene-analysis.js';
-import { directCreative } from './creative-director.js';
+import { directCreative, type CreativeProvenance } from './creative-director.js';
+import { buildVisualLearningContext, type VisualLearningContext } from './reference-retrieval.js';
+import { learningFingerprint, recordReferenceUsage } from './learning.js';
 import type { Edl } from './edl.js';
 import type { TranscriptData } from './transcribe.js';
 
@@ -35,6 +37,10 @@ export interface EditingPlan {
   creative: Edl | null;
   creativeSource: 'ai' | 'fallback' | null;
   creativeModel: string | null;
+  /** validated reference + preference context used for the adaptive plan (audit trail) */
+  visualLearning: VisualLearningContext | null;
+  /** where each creative decision came from (ai / deterministic / learned preference) */
+  creativeProvenance: CreativeProvenance | null;
   model: string;
   createdAt: string;
 }
@@ -68,11 +74,14 @@ export function transcriptFingerprint(transcript: TranscriptData | null): string
 }
 
 export function planHashFor(input: PlanInput): string {
-  return planOptionsHash(input.options, {
+  const extra: Record<string, unknown> = {
     start: Math.round(input.clipStart * 100) / 100,
     end: Math.round(input.clipEnd * 100) / 100,
     tr: transcriptFingerprint(input.transcript),
-  });
+  };
+  // Adaptive plans also change when learning changes; basic plans stay stable.
+  if (input.options.creative?.mode === 'adaptive') extra.learn = learningFingerprint();
+  return planOptionsHash(input.options, extra);
 }
 
 export function getCachedPlan(clipId: string, optionsHash: string): EditingPlan | null {
@@ -109,11 +118,15 @@ export async function buildEditingPlan(input: PlanInput): Promise<EditingPlan> {
   let creative: Edl | null = null;
   let creativeSource: 'ai' | 'fallback' | null = null;
   let creativeModel: string | null = null;
+  let visualLearning: VisualLearningContext | null = null;
+  let creativeProvenance: CreativeProvenance | null = null;
   if (options.creative?.mode === 'adaptive') {
     const c = await buildCreativePlan(input, timeline, hook, subtitle, music);
     creative = c?.edl ?? null;
     creativeSource = c?.source ?? null;
     creativeModel = c?.model ?? null;
+    creativeProvenance = c?.provenance ?? null;
+    visualLearning = c?.learning ?? null;
   }
 
   const plan: EditingPlan = {
@@ -129,6 +142,8 @@ export async function buildEditingPlan(input: PlanInput): Promise<EditingPlan> {
     creative,
     creativeSource,
     creativeModel,
+    visualLearning,
+    creativeProvenance,
     model: subtitle?.model ?? '',
     createdAt: new Date().toISOString(),
   };
@@ -179,7 +194,7 @@ async function buildCreativePlan(
   hook: HookPlan | null,
   subtitle: SubtitleEditingPlan | null,
   music: MusicPlan | null
-): Promise<{ edl: Edl; source: 'ai' | 'fallback'; model: string } | null> {
+): Promise<{ edl: Edl; source: 'ai' | 'fallback'; model: string; provenance: CreativeProvenance | null; learning: VisualLearningContext | null } | null> {
   try {
     const transcript = input.transcript;
     const aspect = input.aspect ?? input.options.aspect ?? '9:16';
@@ -199,7 +214,18 @@ async function buildCreativePlan(
     }
     const hookSeg = timeline.segments.find((s) => s.role === 'hook');
     const hookEndOut = hook && hookSeg ? hookSeg.outputEnd : null;
-    const { edl, source, model } = await directCreative({
+    const hasSpeech = !!(transcript?.segments ?? []).some((s) => s.end > input.clipStart && s.start < input.clipEnd);
+    const learning = buildVisualLearningContext({
+      title: input.title,
+      transcriptText: transcript?.segments?.map((s) => s.text).join(' ').slice(0, 8000) ?? null,
+      scene,
+      duration: input.clipEnd - input.clipStart,
+      hasSpeech,
+      hasAudio: hasSpeech || input.options.backgroundMusic.enabled,
+      graphicsEnabled: input.options.subtitles.enabled,
+      category: null,
+    });
+    const { edl, source, model, provenance } = await directCreative({
       title: input.title,
       clipStart: input.clipStart,
       clipEnd: input.clipEnd,
@@ -213,16 +239,27 @@ async function buildCreativePlan(
       words,
       subtitlePlan: subtitle?.words ?? null,
       musicPlan: music,
-    hookText: hook?.text ?? null,
-    hookEnd: hookEndOut,
+      learning,
+      hookText: hook?.text ?? null,
+      hookEnd: hookEndOut,
     });
+    if (learning?.references.length) {
+      for (const ref of learning.references) {
+        try {
+          recordReferenceUsage({ referenceId: ref.id, clipId: input.clipId, score: ref.score, features: { parts: ref.parts, context: learning.contextKey } });
+        } catch (e) {
+          logger.debug('AI', `reference usage not recorded: ${(e as Error).message}`);
+        }
+      }
+    }
     logger.info(
       'AI',
       `creative plan ${input.clipId}: source=${source} model=${model} grade=${edl.style.grade} ` +
         `zoom=${edl.style.punchIn} titles=${edl.titles.length} lower=${edl.lowerThirds.length} stats=${edl.statCards.length} ` +
-        `callouts=${edl.callouts.length} broll=${edl.broll.length} sfx=${edl.sfx.length}`
+        `callouts=${edl.callouts.length} broll=${edl.broll.length} sfx=${edl.sfx.length} ` +
+        `learning=${learning ? `${learning.references.length} ref(s), ${learning.preferences.length} pref(s)` : 'off'}`
     );
-    return { edl, source, model };
+    return { edl, source, model, provenance, learning };
   } catch (err: any) {
     logger.warn('AI', `creative plan failed for ${input.clipId} (continuing with basic chrome): ${String(err?.message).slice(0, 200)}`);
     return null;

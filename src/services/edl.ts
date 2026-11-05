@@ -571,6 +571,11 @@ export type EdlProblemCode =
   | 'audio_clipping'
   | 'face_framing'
   | 'black_frames'
+  | 'zoom_repetition'
+  | 'subtitle_readability'
+  | 'visual_clutter'
+  | 'broll_density'
+  | 'sfx_density'
   | 'timing';
 
 export interface EdlProblem {
@@ -649,6 +654,53 @@ export function repairEdl(edl: Edl, problems: EdlProblem[]): RepairResult {
         next.framings = [];
         next.style = { ...next.style, punchIn: false };
         applied.push('disabled punch-in framing');
+        break;
+      }
+      case 'zoom_repetition': {
+        const flagged = new Set((p.ids ?? []).map((id) => Number(id.split(':')[1])).filter(Number.isFinite));
+        const before = next.framings.length;
+        next.framings = next.framings.filter((_, i) => !flagged.has(i));
+        if (next.framings.length === before) {
+          // fallback: enforce sensible spacing when ids were not supplied
+          const kept = [];
+          for (const f of next.framings) {
+            const prev = kept[kept.length - 1];
+            if (f.end - f.start < 0.8) continue;
+            if (prev && prev.shot === f.shot && f.start - prev.end < 0.5) continue;
+            kept.push(f);
+          }
+          next.framings = kept;
+        }
+        applied.push(`removed repetitive/short zooms (${p.detail})`);
+        break;
+      }
+      case 'visual_clutter': {
+        const cap = 8;
+        const total = () => next.titles.length + next.lowerThirds.length + next.statCards.length + next.callouts.length;
+        const trim = <T,>(arr: T[]): T[] => {
+          const excess = total() - cap;
+          return excess > 0 ? arr.slice(0, Math.max(0, arr.length - Math.min(excess, arr.length))) : arr;
+        };
+        next.statCards = trim(next.statCards);
+        next.lowerThirds = trim(next.lowerThirds);
+        next.callouts = trim(next.callouts);
+        next.titles = trim(next.titles);
+        applied.push(`reduced graphic overlays to ${cap} (${p.detail})`);
+        break;
+      }
+      case 'subtitle_readability': {
+        next.emphasis = next.emphasis.slice(0, 20);
+        applied.push(`capped emphasis words at 20 (${p.detail})`);
+        break;
+      }
+      case 'broll_density': {
+        next.broll = next.broll.slice(0, 8);
+        applied.push(`capped b-roll at 8 placements (${p.detail})`);
+        break;
+      }
+      case 'sfx_density': {
+        next.sfx = next.sfx.slice(0, 10);
+        applied.push(`capped sfx at 10 placements (${p.detail})`);
         break;
       }
       case 'black_frames': {

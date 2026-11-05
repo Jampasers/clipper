@@ -8,6 +8,8 @@ async function main() {
 
   if (arg === 'all' || arg === 'unit') {
     await import('./unit.test.js');
+    await import('./design.test.js');
+    await import('./learning.test.js');
     await import('./editing.test.js');
     await import('./creative.test.js');
   }
@@ -22,6 +24,8 @@ async function main() {
     await mod.runE2E();
     const ri = await import('./render-integration.test.js');
     await ri.registerRenderIntegration();
+    const rr = await import('./reference-integration.test.js');
+    await rr.registerReferenceIntegration();
   }
 
   await run();

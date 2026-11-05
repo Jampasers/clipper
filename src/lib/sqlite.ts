@@ -237,7 +237,266 @@ CREATE TABLE IF NOT EXISTS sound_effects (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sfx_enabled ON sound_effects(enabled);
+
+/* ---- Visual learning system (additive migrations) ---- */
+
+CREATE TABLE IF NOT EXISTS reference_library (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT,
+  tags TEXT,
+  source_path TEXT NOT NULL,
+  thumbnail_path TEXT,
+  mime TEXT,
+  duration REAL,
+  width INTEGER,
+  height INTEGER,
+  fps REAL,
+  size_bytes INTEGER,
+  status TEXT NOT NULL DEFAULT 'uploaded',
+  analysis_version INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_reference_status ON reference_library(status);
+CREATE INDEX IF NOT EXISTS idx_reference_category ON reference_library(category);
+
+CREATE TABLE IF NOT EXISTS reference_analyses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reference_id TEXT NOT NULL REFERENCES reference_library(id) ON DELETE CASCADE,
+  profile_version INTEGER NOT NULL,
+  analysis_version INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'complete',
+  profile TEXT,
+  measurements TEXT,
+  evidence TEXT,
+  model TEXT,
+  prompt_meta TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(reference_id, analysis_version)
+);
+CREATE INDEX IF NOT EXISTS idx_reference_analyses_ref ON reference_analyses(reference_id);
+
+CREATE TABLE IF NOT EXISTS reference_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reference_id TEXT NOT NULL REFERENCES reference_library(id) ON DELETE CASCADE,
+  clip_id TEXT,
+  project_id TEXT,
+  job_id TEXT,
+  score REAL,
+  features TEXT,
+  outcome TEXT,
+  outcome_source TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_reference_usage_ref ON reference_usage(reference_id);
+CREATE INDEX IF NOT EXISTS idx_reference_usage_clip ON reference_usage(clip_id);
+
+CREATE TABLE IF NOT EXISTS learning_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'explicit',
+  feature TEXT NOT NULL,
+  prev_value TEXT,
+  new_value TEXT,
+  value_kind TEXT,
+  clip_id TEXT,
+  project_id TEXT,
+  job_id TEXT,
+  context TEXT,
+  weight REAL NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'pending',
+  dedupe_key TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  processed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_learning_events_status ON learning_events(status);
+CREATE INDEX IF NOT EXISTS idx_learning_events_feature ON learning_events(feature, context);
+
+CREATE TABLE IF NOT EXISTS learning_preferences (
+  id TEXT PRIMARY KEY,
+  feature TEXT NOT NULL,
+  context_key TEXT NOT NULL DEFAULT '',
+  value TEXT,
+  value_kind TEXT,
+  confidence REAL NOT NULL DEFAULT 0,
+  observations INTEGER NOT NULL DEFAULT 0,
+  explicit_observations INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'learned',
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_learning_preferences_feature ON learning_preferences(feature, context_key);
+
+CREATE TABLE IF NOT EXISTS learning_runs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  events_processed INTEGER NOT NULL DEFAULT 0,
+  preferences_updated INTEGER NOT NULL DEFAULT 0,
+  snapshot_id TEXT,
+  detail TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS preference_snapshots (
+  id TEXT PRIMARY KEY,
+  reason TEXT,
+  run_id TEXT,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS learning_experience (
+  id TEXT PRIMARY KEY,
+  clip_id TEXT,
+  project_id TEXT,
+  job_id TEXT,
+  context_key TEXT,
+  decision TEXT,
+  modification TEXT,
+  render_result TEXT,
+  feedback TEXT,
+  references_used TEXT,
+  outcome TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_experience_clip ON learning_experience(clip_id);
+
+/* ---- AI Creative Studio: Design Studio (additive migrations) ---- */
+
+CREATE TABLE IF NOT EXISTS design_documents (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  document TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  revision INTEGER NOT NULL DEFAULT 1,
+  category TEXT,
+  tags TEXT,
+  brief TEXT,
+  thumbnail_path TEXT,
+  job_id TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_design_documents_status ON design_documents(status);
+CREATE INDEX IF NOT EXISTS idx_design_documents_category ON design_documents(category);
+
+CREATE TABLE IF NOT EXISTS design_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  design_id TEXT NOT NULL REFERENCES design_documents(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  document TEXT NOT NULL,
+  label TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(design_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_design_versions_design ON design_versions(design_id);
+
+CREATE TABLE IF NOT EXISTS design_assets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  thumbnail_path TEXT,
+  mime TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'image',
+  width INTEGER,
+  height INTEGER,
+  size_bytes INTEGER,
+  tags TEXT,
+  source TEXT NOT NULL DEFAULT 'upload',
+  generator TEXT,
+  prompt TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_design_assets_kind ON design_assets(kind, enabled);
+
+CREATE TABLE IF NOT EXISTS design_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT,
+  tags TEXT,
+  document TEXT NOT NULL,
+  thumbnail_path TEXT,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_design_templates_category ON design_templates(category);
+
+CREATE TABLE IF NOT EXISTS design_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  design_id TEXT NOT NULL REFERENCES design_documents(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  source TEXT NOT NULL DEFAULT 'deterministic',
+  score REAL,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_design_reviews_design ON design_reviews(design_id);
+
+CREATE TABLE IF NOT EXISTS design_generations (
+  id TEXT PRIMARY KEY,
+  design_id TEXT,
+  kind TEXT NOT NULL,
+  brief TEXT,
+  options TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  result TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_design_generations_design ON design_generations(design_id);
+
+CREATE TABLE IF NOT EXISTS campaigns (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  brief TEXT,
+  brand TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS campaign_outputs (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  design_id TEXT REFERENCES design_documents(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  format TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);
 `);
+
+  // Queue lanes: additive, nullable/defaulted column so existing rows stay valid.
+  addColumnIfMissing(d, 'jobs', 'lane', "TEXT NOT NULL DEFAULT 'video'");
+  d.exec('CREATE INDEX IF NOT EXISTS idx_jobs_lane_status ON jobs(lane, status);');
+}
+
+function addColumnIfMissing(d: DatabaseSync, table: string, column: string, ddl: string) {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl};`);
+  }
 }
 
 /* ---- tiny query helpers ---- */

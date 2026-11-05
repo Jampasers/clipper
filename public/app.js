@@ -69,6 +69,8 @@ const routes = {
   '/settings/system': 'settingsSystem',
   '/assets/watermarks': 'assetsWatermarks',
   '/assets/music': 'assetsMusic',
+  '/references': 'references',
+  '/learning': 'learning',
 };
 const paramRoutes = {
   '/projects/': 'projectDetail',
@@ -82,7 +84,8 @@ function poll(fn, ms = 2500) {
 }
 
 async function router() {
-  const hash = location.hash.slice(1) || '/';
+  const rawHash = location.hash.slice(1) || '/';
+  const hash = rawHash.split('?')[0].replace(/\/+$/, '') || '/';
   stopPoll();
   let authed = await checkAuth();
   const isLogin = hash === '/login';
@@ -91,8 +94,7 @@ async function router() {
   nav.classList.toggle('hidden', !authed);
   const page =
     routes[hash] ||
-    (paramRoutes['/projects/'] && hash.startsWith('/projects/') ? 'projectDetail' : null) ||
-    (paramRoutes['/clips/'] && hash.startsWith('/clips/') ? 'clipDetail' : null);
+    (Object.entries(paramRoutes).find(([prefix]) => hash.startsWith(prefix)) || [null, null])[1];
   if (!page) { location.hash = '/dashboard'; return; }
   highlightNav(hash);
   main.innerHTML = '<div class="loading">Loading…</div>';
@@ -111,6 +113,7 @@ const NAV_ITEMS = [
   { group: 'Clipping', items: [{ label: 'Detection & Scoring', href: '/settings/clipping' }, { label: 'Boundaries', href: '/settings/clipping' }] },
   { group: 'Video', items: [{ label: 'Subtitles', href: '/settings/subtitles' }, { label: 'Reframe', href: '/settings/reframe' }, { label: 'Rendering', href: '/settings/render' }] },
   { group: 'Assets', items: [{ label: '🖼 Watermarks', href: '/assets/watermarks' }, { label: '🎵 Music library', href: '/assets/music' }] },
+  { group: 'Learning', items: [{ label: '📚 References', href: '/references' }, { label: '🧠 Learning', href: '/learning' }] },
   { group: '', items: [{ label: 'Telegram', href: '/settings/telegram' }] },
   { group: 'System', items: [{ label: 'Workers & Health', href: '/settings/system' }, { label: 'Storage & Logs', href: '/settings/storage' }] },
 ];
@@ -474,7 +477,7 @@ async clipDetail(hash) {
       }).catch(() => {});
       // player source
       const vid = $('#clipVid'), st = $('#vidStatus');
-      const srcFor = (kind) => `/media/${kind === 'preview' ? 'previews' : 'outputs'}/${id}_${kind}.mp4`;
+      const srcFor = (kind) => `/media/${kind === 'preview' ? 'previews' : 'outputs'}/${id}_${kind}.mp4?v=${encodeURIComponent(c.updated_at || '')}`;
     const trySrcs = async () => {
       for (const kind of ['final', 'preview']) {
           const url = srcFor(kind);
@@ -1190,13 +1193,249 @@ async assetsMusic() {
       if (!confirm('Delete this track?')) return;
       try { await api(`/api/assets/music/${b.dataset.del}`, { method: 'DELETE' }); toast('Deleted'); load(); }
       catch (e) { toast(e.message, 'err'); }
+     }));
+   };
+   await load();
+ },
+ 
+ /* ---------- references library ---------- */
+async references() {
+  const REF_STATUS = { downloading: 'amber', uploaded: 'gray', analyzing: 'amber', analyzed: 'green', partial: 'amber', failed: 'red' };
+  const load = async () => {
+    const { references: refs, total, categories } = await api('/api/references?limit=100');
+    main.innerHTML = `
+    <div class="pageHead"><div><h1>References</h1>
+      <p class="sub">Upload editing-style references (${total}). Every reference is measured locally with FFmpeg, then analysed by the vision model — the style profile is stored and used to guide adaptive renders.</p></div></div>
+    <div class="card"><h2>Add reference video</h2>
+      <div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div><label>File (video)</label><input type="file" id="refFile" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v"></div>
+        <div><label>Name (optional)</label><input id="refName" placeholder="MrBeast style" style="min-width:140px"></div>
+        <div><label>Category</label><input id="refCategory" placeholder="gaming" style="width:120px"></div>
+        <div><label>Description (optional)</label><input id="refDesc" placeholder="fast cuts, big text" style="min-width:200px"></div>
+        <div><label>Tags (comma)</label><input id="refTags" placeholder="fast, bold" style="width:140px"></div>
+        <button class="btn" id="refUpload">Upload</button>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <div style="flex:1"><label>or paste a link (YouTube / TikTok / Instagram)</label><input id="refUrl" placeholder="https://www.youtube.com/watch?v=…" style="min-width:280px"></div>
+        <button class="btn" id="refFromUrl">Import link</button>
+      </div>
+      <p class="hint">Files are kept in a permanent local library. Links are downloaded in the background (yt-dlp). Analysis runs automatically (can be re-run anytime).</p>
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Library${categories.length ? ` — ${categories.map((c) => esc(c.category) + ' (' + c.count + ')').join(', ')}` : ''}</h2>
+      ${refs.length ? `<table><tr><th></th><th>Name</th><th>Category</th><th>Duration</th><th>Status</th><th>Enabled</th><th></th></tr>
+      ${refs.map((r) => `<tr data-ref="${r.id}">
+        <td>${r.hasThumbnail ? `<img src="${esc(r.thumbnailUrl)}" style="height:44px;border-radius:6px;object-fit:cover;width:78px" loading="lazy">` : '<span class="hint">—</span>'}</td>
+        <td><b>${esc(r.name)}</b><br><span class="hint mono">${fmtBytes(r.sizeBytes)}${r.width ? ` · ${r.width}×${r.height}` : ''}</span></td>
+        <td><input data-k="category" value="${esc(r.category ?? '')}" style="width:110px"></td>
+        <td class="mono hint">${r.duration ? fmtTime(r.duration) : '—'}</td>
+        <td><span class="badge ${REF_STATUS[r.status] || 'gray'}">${esc(r.status)}</span>${r.error ? `<br><span class="hint">${esc(r.error.slice(0, 80))}</span>` : ''}</td>
+        <td><input type="checkbox" data-k="enabled" ${r.enabled ? 'checked' : ''}></td>
+        <td class="row" style="gap:6px">
+          <button class="btn ghost small" data-analyze="${r.id}">Analyze</button>
+          <button class="btn ghost small" data-detail="${r.id}">Details</button>
+          <button class="btn ghost small" data-del="${r.id}">🗑</button>
+        </td>
+      </tr>`).join('')}</table>` : '<p class="hint">No references yet — upload a video whose style you want to learn from.</p>'}
+    </div>
+    <div id="refDetail"></div>`;
+    $('#refUpload').addEventListener('click', async () => {
+      const f = $('#refFile').files[0];
+      if (!f) return toast('Choose a video first', 'err');
+      const fd = new FormData();
+      fd.append('file', f);
+      const put = (k, id) => { const v = $(id).value.trim(); if (v) fd.append(k, v); };
+      put('name', '#refName'); put('category', '#refCategory'); put('description', '#refDesc'); put('tags', '#refTags');
+      try {
+        toast('Uploading…');
+        const res = await fetch('/api/references', { method: 'POST', body: fd, credentials: 'same-origin' }).then(async (r) => {
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+          return r.json();
+        });
+        toast(res.analysisJobId ? 'Reference added — analysis queued' : 'Reference added (auto-analyze off)');
+        load();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+    $('#refFromUrl').addEventListener('click', async () => {
+      const url = $('#refUrl').value.trim();
+      if (!url) return toast('Paste a video link first', 'err');
+      const opt = (id) => $(id).value.trim() || undefined;
+      const body = { url };
+      const n = opt('#refName'); if (n) body.name = n;
+      const c = opt('#refCategory'); if (c) body.category = c;
+      const d = opt('#refDesc'); if (d) body.description = d;
+      const t = opt('#refTags'); if (t) body.tags = t;
+      try {
+        toast('Reading link…');
+        await api('/api/references/url', { method: 'POST', body });
+        toast('Link imported — downloading in the background', 'ok');
+        $('#refUrl').value = '';
+        load();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+    $$('[data-analyze]').forEach((b) => b.addEventListener('click', async () => {
+      try { await api(`/api/references/${b.dataset.analyze}/analyze`, { method: 'POST', body: {} }); toast('Analysis queued'); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+    $$('[data-ref]').forEach((row) => {
+      row.addEventListener('change', async (e) => {
+        const el = e.target.closest('[data-k]');
+        if (!el) return;
+        const body = el.type === 'checkbox' ? { enabled: el.checked } : { [el.dataset.k]: el.value.trim() || null };
+        try { await api(`/api/references/${row.dataset.ref}`, { method: 'PATCH', body }); toast('Saved'); }
+        catch (err) { toast(err.message, 'err'); }
+      });
+    });
+    $$('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Delete this reference and its files?')) return;
+      try { await api(`/api/references/${b.dataset.del}`, { method: 'DELETE' }); toast('Deleted'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+    $$('[data-detail]').forEach((b) => b.addEventListener('click', async () => {
+      try {
+        const { reference, analysis } = await api(`/api/references/${b.dataset.detail}`);
+        const prof = analysis?.profile;
+        const feats = [];
+        for (const [group, block] of Object.entries(prof || {})) {
+          if (group === 'confidence' || group === 'version' || group === 'category' || group === 'tags') continue;
+          for (const [k, v] of Object.entries(block || {})) {
+            if (v && typeof v === 'object' && 'value' in v && 'confidence' in v) feats.push({ k, v: v.value, c: v.confidence });
+          }
+        }
+        $('#refDetail').innerHTML = `
+        <div class="card" style="margin-top:16px"><h2>${esc(reference.name)} — analysis</h2>
+          <video src="${esc(reference.sourceUrl)}" controls style="max-width:320px;border-radius:8px;background:#000"></video>
+          ${analysis ? `
+            <p class="sub">status <b>${esc(analysis.status)}</b> · model <span class="mono">${esc(analysis.model ?? '—')}</span> · version ${analysis.analysisVersion}</p>
+            ${analysis.measurements ? `<p class="hint mono">cut ${analysis.measurements.cutCpm ?? '?'} cuts/min · ${analysis.measurements.averageShotDuration ?? '?'}s avg shot · ${analysis.measurements.cutCount ?? 0} cuts · lufs ${analysis.measurements.loudnessLufs ?? '—'}</p>` : ''}
+            <table><tr><th>Feature</th><th>Value</th><th>Confidence</th></tr>
+            ${feats.map((f) => `<tr><td class="mono">${esc(f.k)}</td><td>${esc(String(f.v))}</td><td><span class="badge ${f.c >= 0.6 ? 'green' : f.c >= 0.35 ? 'amber' : 'gray'}">${Math.round(f.c * 100)}%</span></td></tr>`).join('')}</table>`
+            : '<p class="hint">Not analysed yet.</p>'}
+        </div>`;
+      } catch (e) { toast(e.message, 'err'); }
+    }));
+  };
+  await load();
+},
+
+/* ---------- learning memory ---------- */
+async learning() {
+  const TIERS = ['very_low', 'low', 'medium', 'medium_high', 'high', 'very_high'];
+  const SOURCE_BADGE = { manual: 'blue', learned: 'green' };
+  const load = async () => {
+    const [prefData, stats, insights, events, history, snapshots] = await Promise.all([
+      api('/api/learning/preferences'),
+      api('/api/learning/stats'),
+      api('/api/learning/insights'),
+      api('/api/learning/events?limit=30'),
+      api('/api/learning/history?limit=15'),
+      api('/api/learning/snapshots'),
+    ]);
+    const specFor = (f) => prefData.specs.find((s) => s.feature === f) || {};
+    const inputFor = (p) => {
+      const spec = specFor(p.feature);
+      const val = p.value != null ? JSON.parse(p.value) : '';
+      if (spec.kind === 'numeric') return `<input type="number" data-k="value" value="${Number(val)}" min="0" max="1" step="0.05" style="width:80px">`;
+      const opts = spec.kind === 'tier' ? TIERS : (spec.options || []);
+      return `<select data-k="value">${opts.map((o) => `<option ${String(o) === String(val) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    };
+    main.innerHTML = `
+    <div class="pageHead"><div><h1>Learning</h1>
+      <p class="sub">What the system has learned from references, feedback and manual edits. Preferences are recomputed deterministically from events — the AI only proposes, never writes.</p></div>
+      <div class="row" style="gap:8px">
+        <button class="btn ghost small" id="learnRun">Recompute now</button>
+        <button class="btn ghost small" id="learnReset">Reset learned</button>
+        <button class="btn danger small" id="learnResetAll">Reset all</button>
+      </div></div>
+    <div class="grid cols-4">
+      <div class="card"><div class="stat">${stats.references.analyzed}/${stats.references.total}</div><div class="stat-label">References</div><div class="hint">${stats.references.partial} partial · ${stats.references.failed} failed</div></div>
+      <div class="card"><div class="stat">${stats.events.total}</div><div class="stat-label">Events</div><div class="hint">${stats.events.pending} pending · ${stats.events.explicit} explicit</div></div>
+      <div class="card"><div class="stat">${stats.preferences.active}</div><div class="stat-label">Preferences</div><div class="hint">${stats.preferences.contexts} context(s) · avg conf ${stats.preferences.avgConfidence}</div></div>
+      <div class="card"><div class="stat">${stats.experience}</div><div class="stat-label">Experience</div><div class="hint">renders tracked · last run ${esc(stats.runs.lastKind ?? '—')}</div></div>
+    </div>
+    ${insights.insights.length ? `<div class="card" style="margin-top:16px"><h2>💡 Insights</h2><ul>${insights.insights.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : ''}
+    <div class="card" style="margin-top:16px"><h2>Preferences</h2>
+      <div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <div><label>Feature</label><select id="prefFeature">${prefData.features.map((f) => `<option value="${f}">${esc(f)}</option>`).join('')}</select></div>
+        <div><label>Context (blank = global)</label><input id="prefContext" placeholder="global" style="width:130px"></div>
+        <div><label>Value</label><input id="prefValue" placeholder="e.g. low / 0.3 / fast" style="width:120px"></div>
+        <button class="btn small" id="prefSet">Set manually</button>
+      </div>
+      ${prefData.preferences.length ? `<table><tr><th>Feature</th><th>Context</th><th>Value</th><th>Confidence</th><th>Source</th><th>Status</th><th></th></tr>
+      ${prefData.preferences.map((p) => `<tr data-pref="${p.id}">
+        <td class="mono">${esc(p.feature)}</td>
+        <td>${esc(p.context_key || 'global')}</td>
+        <td>${inputFor(p)}</td>
+        <td><span class="badge ${p.confidence >= 0.6 ? 'green' : p.confidence >= 0.3 ? 'amber' : 'gray'}">${Math.round(p.confidence * 100)}%</span> <span class="hint">${p.observations} obs</span></td>
+        <td><span class="badge ${SOURCE_BADGE[p.source] || 'gray'}">${esc(p.source)}</span></td>
+        <td>${esc(p.status)}</td>
+        <td class="row" style="gap:6px">
+          <button class="btn ghost small" data-save-pref="${p.id}">Save</button>
+          <button class="btn ghost small" data-del-pref="${p.id}">🗑</button>
+        </td>
+      </tr>`).join('')}</table>` : '<p class="hint">Nothing learned yet — add references, give feedback, or set a preference manually.</p>'}
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Recent events</h2>
+      ${events.events.length ? `<table><tr><th>When</th><th>Type</th><th>Feature</th><th>Change</th><th>Source</th><th>Context</th></tr>
+      ${events.events.map((e) => `<tr><td class="hint">${esc(e.created_at)}</td><td>${esc(e.event_type)}</td><td class="mono">${esc(e.feature)}</td>
+        <td class="mono hint">${esc(String(e.prev_value ?? '—'))} → ${esc(String(e.new_value ?? '—'))}</td><td>${esc(e.source)}</td><td>${esc(e.context_key || 'global')}</td></tr>`).join('')}</table>`
+        : '<p class="hint">No events yet.</p>'}
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Learning runs</h2>
+      ${((history.runs || [])).length ? `<table><tr><th>When</th><th>Kind</th><th>Status</th><th>Events</th><th>Updates</th><th>Snapshot</th></tr>
+      ${(history.runs || []).map((r) => `<tr><td class="hint">${esc(r.created_at)}</td><td>${esc(r.kind)}</td><td>${esc(r.status)}</td><td>${r.events_processed ?? 0}</td><td>${r.preferences_updated ?? 0}</td><td class="mono hint">${esc(r.snapshot_id ?? '—')}</td></tr>`).join('')}</table>`
+        : '<p class="hint">No runs yet.</p>'}
+      ${snapshots.snapshots.length ? `<h3 style="margin-top:14px">Snapshots <span class="hint">(restore returns to a previous preference state)</span></h3>
+        <table><tr><th>When</th><th>Reason</th><th>Rows</th><th></th></tr>
+        ${snapshots.snapshots.slice(0, 10).map((s) => `<tr><td class="hint">${esc(s.created_at)}</td><td>${esc(s.reason ?? '')}</td><td>${s.count}</td>
+          <td><button class="btn ghost small" data-restore="${esc(s.id)}">Restore</button></td></tr>`).join('')}</table>` : ''}
+    </div>`;
+    $('#learnRun').addEventListener('click', async () => {
+      try { const r = await api('/api/learning/update', { method: 'POST', body: {} }); toast(`Recomputed: ${r.run.eventsProcessed} events, ${r.run.preferencesUpdated} updates`); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+    $('#learnReset').addEventListener('click', async () => {
+      if (!confirm('Delete all learned preferences? Manual ones are kept. A snapshot is saved first.')) return;
+      try { await api('/api/learning/reset', { method: 'POST', body: { scope: 'learned' } }); toast('Learned preferences reset'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+    $('#learnResetAll').addEventListener('click', async () => {
+      if (!confirm('Delete ALL preferences including manual ones? A snapshot is saved first.')) return;
+      try { await api('/api/learning/reset', { method: 'POST', body: { scope: 'all' } }); toast('All preferences reset'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+    $('#prefSet').addEventListener('click', async () => {
+      const feature = $('#prefFeature').value;
+      const raw = $('#prefValue').value.trim();
+      if (!raw) return toast('Enter a value', 'err');
+      const num = parseFloat(raw);
+      const value = isNaN(num) ? raw : num;
+      try {
+        await api('/api/learning/preferences', { method: 'PUT', body: { feature, value, contextKey: $('#prefContext').value.trim() } });
+        toast('Preference set'); load();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+    $$('[data-save-pref]').forEach((b) => b.addEventListener('click', async () => {
+      const row = b.closest('tr');
+      const el = $('[data-k="value"]', row);
+      const num = parseFloat(el.value);
+      const value = el.tagName === 'SELECT' ? el.value : isNaN(num) ? el.value : num;
+      try { await api(`/api/learning/preferences/${b.dataset.savePref}`, { method: 'PATCH', body: { value } }); toast('Saved'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+    $$('[data-del-pref]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Delete this preference?')) return;
+      try { await api(`/api/learning/preferences/${b.dataset.delPref}`, { method: 'DELETE' }); toast('Deleted'); load(); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+    $$('[data-restore]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Restore this snapshot? Current preferences are replaced.')) return;
+      try { await api(`/api/learning/snapshots/${b.dataset.restore}/restore`, { method: 'POST', body: {} }); toast('Snapshot restored'); load(); }
+      catch (e) { toast(e.message, 'err'); }
     }));
   };
   await load();
 },
 };
-
-/* ---------- per-render options ---------- */
 const optKey = (clipId) => `avc-opt-${clipId}`;
 function loadOptState(clipId) {
   try { return JSON.parse(localStorage.getItem(optKey(clipId)) || 'null'); } catch { return null; }
@@ -1308,6 +1547,13 @@ function wireClipCards(scope) {
 }
 
 /* ---------- boot ---------- */
+/* Design Studio extension (public/design-studio.js) merges into the router. */
+if (window.DesignRoutes) {
+  Object.assign(routes, window.DesignRoutes.routes || {});
+  Object.assign(paramRoutes, window.DesignRoutes.paramRoutes || {});
+}
+if (window.DesignPages) Object.assign(PAGES, window.DesignPages);
+if (window.DesignNav) NAV_ITEMS.splice(2, 0, window.DesignNav);
 buildNav();
 $('#toast').classList.remove('hidden'); // container is empty
 router();

@@ -22,10 +22,17 @@ export async function bundleUrl(): Promise<string> {
 export { ensureBrowser, getCompositions, renderMedia, renderStill };
 
 /**
- * Rasterize sanitized SVG markup to a transparent PNG via headless Chrome.
- * Throws on failure — the caller must treat the upload as rejected.
+ * Rasterize SVG markup to a still via headless Chrome.
+ * Throws on failure — the caller must treat the output as failed.
  */
-export async function rasterizeSvgToPng(svgContent: string, outPath: string, width: number, height: number): Promise<void> {
+export async function rasterizeSvgToImage(
+  svgContent: string,
+  outPath: string,
+  width: number,
+  height: number,
+  format: 'png' | 'jpeg' = 'png',
+  quality?: number
+): Promise<void> {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   await ensureBrowser();
   const serveUrl = await bundleUrl();
@@ -39,11 +46,20 @@ export async function rasterizeSvgToPng(svgContent: string, outPath: string, wid
     serveUrl,
     inputProps,
     output: outPath,
-    imageFormat: 'png',
+    imageFormat: format,
+    ...(format === 'jpeg' && quality !== undefined ? { jpegQuality: Math.max(1, Math.min(100, Math.round(quality))) } : {}),
     overwrite: true,
   });
   if (!fs.existsSync(outPath) || fs.statSync(outPath).size < 100) {
-    throw new Error('SVG rasterization produced an empty image');
+    throw new Error(`SVG rasterization produced an empty ${format} image`);
   }
-  logger.info('CAPTION', `svg rasterized: ${path.basename(outPath)} (${width}x${height})`);
+  logger.info('CAPTION', `svg rasterized: ${path.basename(outPath)} (${width}x${height}, ${format})`);
+}
+
+/**
+ * Rasterize sanitized SVG markup to a transparent PNG via headless Chrome.
+ * Throws on failure — the caller must treat the upload as rejected.
+ */
+export async function rasterizeSvgToPng(svgContent: string, outPath: string, width: number, height: number): Promise<void> {
+  return rasterizeSvgToImage(svgContent, outPath, width, height, 'png');
 }

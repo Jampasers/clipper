@@ -27,6 +27,9 @@ everyone else, including groups).
 | ⚙️ **Tune** button | Per-clip render options before rendering: watermarks on/off, hook duration (off → 3 → 5 → 7 → 10s), fallback, AI music, voice ducking, subtitle style (off → ai → bold → karaoke → kinetic), 🧠 Creative (adaptive/basic) and 🔍 QA (on/off) plus the built-in presets. |
 | `/creative` (alias `/config`) | Shows the current creative defaults: mode, quality review, graphics overlay and aspect ratio. |
 | `/render` | Renders all **selected** clips (kind `telegram`) and sends the files back. |
+| `/references` | Visual Learning reference library: list, analyze-on-demand and counts. |
+| `/learn` | Learning status: top learned preferences, insights and confidence. |
+| `/feedback <#\|id> <good\|bad> [notes]` | Records clip feedback; notes are classified into validated feature signals. |
 | `/health` | Same health checks as the dashboard. |
 
 ## Limits & behaviour

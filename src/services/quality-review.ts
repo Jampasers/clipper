@@ -71,6 +71,39 @@ export function reviewCreativeStatic(input: StaticReviewInput): StaticReview {
     problems.push({ code: 'audio_clipping', detail: 'sfx placed at/after the output end', ids: lateSfx });
   }
 
+  // 4. zoom repetition — framings too short or the same shot repeated back-to-back
+  const zoomIssues: string[] = [];
+  edl.framings.forEach((f, i) => {
+    if (f.end - f.start < 0.8) {
+      zoomIssues.push(`framing:${i}`);
+      return;
+    }
+    const prev = edl.framings[i - 1];
+    if (prev && prev.shot === f.shot && f.start - prev.end < 0.5) zoomIssues.push(`framing:${i}`);
+  });
+  if (zoomIssues.length) {
+    problems.push({ code: 'zoom_repetition', detail: `${zoomIssues.length} repetitive/short zoom framing(s)`, ids: zoomIssues });
+  }
+
+  // 5. visual clutter — graphics density
+  const graphics = edl.titles.length + edl.lowerThirds.length + edl.statCards.length + edl.callouts.length;
+  if (graphics > 10) {
+    problems.push({ code: 'visual_clutter', detail: `${graphics} graphic overlays (cap 10)` });
+  }
+
+  // 6. subtitle readability — emphasis overload
+  if (edl.emphasis.length > 24) {
+    problems.push({ code: 'subtitle_readability', detail: `${edl.emphasis.length} emphasized words (cap 24)` });
+  }
+
+  // 7. b-roll / sfx density
+  if (edl.broll.length > 8) {
+    problems.push({ code: 'broll_density', detail: `${edl.broll.length} b-roll placements (cap 8)` });
+  }
+  if (edl.sfx.length > 10) {
+    problems.push({ code: 'sfx_density', detail: `${edl.sfx.length} sfx placements (cap 10)` });
+  }
+
   return { ok: problems.length === 0, problems };
 }
 

@@ -11,6 +11,8 @@ import { enqueueProjectPipeline } from '../services/pipeline.js';
 import { getSettings, deepMerge } from '../lib/settings.js';
 import { runHealthChecks } from '../lib/health.js';
 import { defaultRenderOptions, listRenderPresets, resolveRenderOptions, type RenderOptions } from '../services/render-options.js';
+import { listReferences } from '../services/reference-library.js';
+import { learningStats, listPreferences, currentInsights, submitClipFeedback } from '../services/learning.js';
 
 /**
  * Telegram bot: same backend services as the web UI — no business logic here.
@@ -112,11 +114,14 @@ async function handleUpdate(client: TelegramClient, u: TgUpdate): Promise<void> 
       '/clips — candidates for the latest project',
       '/render — render the top clip',
       '/creative — adaptive editing defaults',
+      '/references — style reference library',
+      '/learn — what the system has learned',
+      '/feedback <#|id> good|bad [notes] — rate a clip',
       '/health — system health',
       '/help — this message',
     ].join('\n'));
   } else if (text.startsWith('/help')) {
-    await client.sendMessage(chatId, 'Send a video to start. /projects /clips /render /creative /health. Settings live in the web dashboard.');
+    await client.sendMessage(chatId, 'Send a video to start. /projects /clips /render /creative /references /learn /feedback /health. Settings live in the web dashboard.');
   } else if (text.startsWith('/creative') || text.startsWith('/config')) {
     const c = getSettings('creative');
     const r = getSettings('reframe');
@@ -147,6 +152,53 @@ async function handleUpdate(client: TelegramClient, u: TgUpdate): Promise<void> 
     for (const c of clips) {
       const { enqueueRender } = await import('../services/pipeline.js');
       enqueueRender(c.id, 'telegram');
+    }
+  } else if (text.startsWith('/references')) {
+    const { references, total } = listReferences({ limit: 10 });
+    if (!total) return void (await client.sendMessage(chatId, 'No references yet. Upload videos on the dashboard References page.'));
+    const lines = references.map((r) => {
+      const icon = r.status === 'analyzed' ? '🧠' : r.status === 'partial' ? '◐' : r.status === 'failed' ? '❌' : '📼';
+      return `${icon} <b>${escapeHtml(r.name)}</b> — ${escapeHtml(r.category ?? 'uncategorized')} (${r.duration?.toFixed(0) ?? '?'}s)`;
+    });
+    await client.sendMessage(chatId, `<b>Reference library</b> (${total})\n${lines.join('\n')}${total > references.length ? '\n…' : ''}`);
+  } else if (text.startsWith('/learn')) {
+    const stats = learningStats();
+    const insights = currentInsights(4);
+    const prefs = listPreferences({}).filter((p) => p.status === 'active').slice(0, 6);
+    const prefLines = prefs.map((p) => `• ${p.feature}@${p.context_key || 'global'} = ${escapeHtml(String(p.value ?? ''))} (${Math.round(p.confidence * 100)}%)`);
+    await client.sendMessage(chatId, [
+      '<b>Learning memory</b>',
+      `🧠 enabled: ${stats.enabled ? 'yes' : 'no'}`,
+      `📚 references: ${stats.references.analyzed}/${stats.references.total} analyzed`,
+      `✍️ events: ${stats.events.total} (${stats.events.pending} pending)`,
+      `🎛 preferences: ${stats.preferences.active} active across ${stats.preferences.contexts} context(s)`,
+      insights.length ? `💡 ${insights.map((i) => escapeHtml(i)).join('\n💡 ')}` : '',
+      prefLines.length ? `\n<b>Top preferences</b>\n${prefLines.join('\n')}` : '',
+    ].filter(Boolean).join('\n'));
+  } else if (text.startsWith('/feedback')) {
+    // /feedback <#ordinal | clipId> good|bad [notes...]
+    const parts = text.split(/\s+/).slice(1);
+    const target = parts[0] ?? '';
+    const verdict = parts[1] === 'good' ? 'good' : parts[1] === 'bad' ? 'bad' : null;
+    if (!target || !verdict) {
+      await client.sendMessage(chatId, 'Usage: /feedback <#ordinal|clipId> good|bad [notes]');
+      return;
+    }
+    let clipId: string | null = null;
+    const ord = /^#?(\d+)$/.exec(target);
+    if (ord) {
+      const project = latestReadyProject();
+      const clip = project ? listClips({ projectId: project.id, status: 'selected' }).find((c) => String(c.ord) === ord[1]) : null;
+      clipId = clip?.id ?? null;
+    } else {
+      clipId = getClip(target)?.id ?? null;
+    }
+    if (!clipId) return void (await client.sendMessage(chatId, `Clip "${escapeHtml(target)}" not found in the latest project.`));
+    const notes = parts.slice(2).join(' ');
+    await client.sendMessage(chatId, '📝 Feedback recorded. Thank you!');
+    const result = await submitClipFeedback(clipId, { verdict, notes: notes || undefined });
+    if (result.classified) {
+      await client.sendMessage(chatId, `🧠 Noted: ${result.classified.feature} → ${escapeHtml(String(result.classified.value))} (${result.classified.sentiment})`);
     }
   } else if (text.startsWith('/health')) {
     const h = await runHealthChecks();

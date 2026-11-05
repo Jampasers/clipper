@@ -11,10 +11,11 @@ import {
   createClip, replaceProjectClips, selectClips, listClips, updateClip, getClip,
 } from './clips.js';
 import { renderClip } from './render.js';
-import { resolveRenderOptions, saveRenderSnapshot } from './render-options.js';
-import { getOrCreateEditingPlan } from './editing-plan.js';
+import { resolveRenderOptions, saveRenderSnapshot, type RenderOptions } from './render-options.js';
+import { getOrCreateEditingPlan, type EditingPlan } from './editing-plan.js';
 import { aiEmphasisWords } from './subtitles.js';
 import { probeVideo } from '../lib/ffmpeg.js';
+import { recordExperience, recordLearningEvent, maybeEnqueueLearningUpdate } from './learning.js';
 
 /**
  * The render pipeline stage orchestrator.
@@ -222,7 +223,6 @@ async function doRender(job: { id: string; project_id: string | null; clip_id: s
     // Resolve options only when the job actually starts, then freeze them:
     // settings changed while the job sat in the queue do not leak in.
     const { options } = resolveRenderOptions(payload.options ?? null, payload.preset ?? null);
-    saveRenderSnapshot(job.id, clip.id, options);
     // Clip windows can extend past the source (AI boundary refine); clamp so
     // the QA duration check compares against what is actually renderable.
     const srcDur = Number(meta.duration) || 0;
@@ -239,7 +239,34 @@ async function doRender(job: { id: string; project_id: string | null; clip_id: s
       sourcePath: p.source_path,
       probe: meta,
     });
-    await renderClip({
+    applyLearnedSubtitleStyle(options, plan);
+    // Freeze the effective options (including the learned subtitle style) only
+    // once the plan is known — settings changed while queued do not leak in.
+    saveRenderSnapshot(job.id, clip.id, options);
+
+    // implicit learning signal: re-rendering an adaptive clip that already
+    // rendered means the previous result was not good enough (weight < explicit)
+    const adaptive = options.creative?.mode === 'adaptive';
+    const priorRenders = adaptive
+      ? q.get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM jobs WHERE clip_id = ? AND type IN ('render_preview','render_final') AND status = 'done'",
+          clip.id
+        )?.n ?? 0
+      : 0;
+    if (priorRenders > 0) {
+      recordLearningEvent({
+        eventType: 'regenerated',
+        feature: 'overall',
+        source: 'implicit',
+        clipId: clip.id,
+        projectId: p.id,
+        jobId: job.id,
+        context: { mode: options.creative?.mode ?? 'basic', kind },
+        dedupeKey: `regen:${clip.id}:${job.id}`,
+      });
+    }
+
+    const result = await renderClip({
       clip: { id: clip.id, start, end, aspect: clip.aspect, subtitle_preset: clip.subtitle_preset, title: clip.title ?? null },
       sourcePath: p.source_path,
       probe: meta,
@@ -253,6 +280,39 @@ async function doRender(job: { id: string; project_id: string | null; clip_id: s
     updateClip(clip.id, {
       status: kind === 'final' ? 'rendered_final' : 'previewed',
     });
+
+    // experience memory: decision -> modification -> result, later resolved by feedback
+    recordExperience({
+      clipId: clip.id,
+      projectId: p.id,
+      jobId: job.id,
+      contextKey: plan.visualLearning?.contextKey ?? '',
+      decision: {
+        mode: options.creative?.mode ?? 'basic',
+        optionsHash: plan.optionsHash,
+        creativeSource: plan.creativeSource,
+        creativeModel: plan.creativeModel,
+        grade: plan.creative?.style.grade ?? null,
+        framings: plan.creative?.framings.length ?? 0,
+        titles: plan.creative?.titles.length ?? 0,
+        broll: plan.creative?.broll.length ?? 0,
+        sfx: plan.creative?.sfx.length ?? 0,
+        preferenceApplications: plan.creativeProvenance?.preferenceApplications ?? [],
+      },
+      referencesUsed: plan.visualLearning?.references.map((r) => ({ id: r.id, score: r.score })) ?? [],
+      renderResult: {
+        kind,
+        duration: result.duration,
+        size: result.size,
+        hook: result.summary?.hook ?? null,
+        music: result.summary?.music ?? null,
+        creativeMode: result.summary?.creativeMode ?? null,
+        creativeSource: result.summary?.creativeSource ?? null,
+      },
+      feedback: null,
+      outcome: 'unknown',
+    });
+    if (adaptive) maybeEnqueueLearningUpdate();
   } finally {
     // Clear RENDERING on success AND failure — otherwise the project polls forever.
     const other = q.get<{ n: number }>(
@@ -265,6 +325,26 @@ async function doRender(job: { id: string; project_id: string | null; clip_id: s
 /** Wrap a job payload's probe so downstream stages don't re-probe. */
 export function withProbe(payload: Record<string, unknown>, probe: unknown): Record<string, unknown> {
   return { ...payload, meta: probe };
+}
+
+const SUBTITLE_PREF_TO_STYLE: Record<string, 'bold' | 'karaoke' | 'kinetic'> = {
+  bold: 'bold',
+  karaoke: 'karaoke',
+  kinetic: 'kinetic',
+};
+
+/**
+ * Reference/learned subtitle-style hint -> actual caption style for renders.
+ * Only kicks in when the user left the style on 'auto' (ai); an explicit style
+ * choice in the render dialog always wins.
+ */
+function applyLearnedSubtitleStyle(options: RenderOptions, plan: EditingPlan): void {
+  if (!options.subtitles.enabled || options.subtitles.style !== 'ai') return;
+  const hint = plan.visualLearning?.constraints.preferredSubtitleStyle;
+  const mapped = hint ? SUBTITLE_PREF_TO_STYLE[hint] : undefined;
+  if (!mapped) return;
+  options.subtitles.style = mapped;
+  logger.info('RENDER', `subtitle style override from learning: ai -> ${mapped}`);
 }
 
 export { projectSummary };

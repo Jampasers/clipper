@@ -26,6 +26,9 @@ Two layers: **environment variables** (`.env`, read at startup) and **settings g
 | `PREVIEW_DIR` | `./storage/previews` | Rendered previews. |
 | `OUTPUT_DIR` | `./storage/outputs` | Final renders. |
 | `ASSET_DIR` | `./storage/assets` | Watermark images (`watermarks/`) and the music library (`music/`). |
+| `REFERENCE_DIR` | `./storage/references` | Visual Learning reference videos (`source.mp4`, thumbnail, `frames/` while analyzing). |
+| `LEARNING_DIR` | `./storage/learning` | Learning engine exports/snapshots. |
+| `DESIGN_DIR` | `./storage/designs` | Design Studio documents, asset library, exports (`exports/`), thumbnails (`thumbs/`). |
 | `FFMPEG_PATH` | `ffmpeg` | FFmpeg executable. |
 | `FFPROBE_PATH` | `ffprobe` | FFprobe executable. |
 | `PYTHON_PATH` | `python` | Python for the whisper / opencv sidecars. |
@@ -104,6 +107,25 @@ Plain weights summed per candidate (higher = more influential):
   `volume_db` (BGM gain offset), `duck_db` (lower BGM while someone speaks),
   `fade_in` / `fade_out` (seconds), `voice_ducking`, `voice_target_lufs` (-16),
   `music_target_lufs` (-17), `true_peak_db` (-1 dBTP limiter ceiling).
+
+### `learning`
+- `enabled` (master switch for auto-analysis, retrieval and preference learning),
+  `auto_analyze` (analyze reference uploads automatically), `use_references`
+  (feed learned context into adaptive plans), `max_references` (3),
+  `min_reference_score` (0.15), per-term `weights`, `min_preference_confidence`
+  (0.25), `explicit_weight` (2), `implicit_weight` (1), and vision caps
+  (`vision_max_frames`, `vision_frame_width`, `max_reference_duration`,
+  `max_reference_bytes`). See [Visual Learning](visual-learning.md).
+
+### `design`
+- `concurrency` (1–4; the design queue lane — video jobs always run first),
+  `review.auto_repair` (deterministic repair after generation),
+  `review.ai` (optional vision review; uses `design_review_vision`).
+- **Image provider** (independent of the chat router): `design.image_provider` =
+  `none` | `pollinations` | `openai_compatible`, plus `provider.url`, `provider.model`,
+  `provider.apiKey` (masked), `provider.size`. A *Test* button verifies it; without a
+  provider, generation falls back to gradient backgrounds. See
+  [Design Studio](creative-studio/design-studio.md).
 
 ### `telegram`
 - `enabled`, `send_progress`.

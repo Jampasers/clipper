@@ -94,6 +94,8 @@ export async function registerRenderIntegration(): Promise<void> {
     creative: null,
     creativeSource: null,
     creativeModel: null,
+    visualLearning: null,
+    creativeProvenance: null,
     model: '',
     createdAt: new Date().toISOString(),
   };

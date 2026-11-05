@@ -15,7 +15,19 @@ export type AiTask =
   | 'hook_generation'
   | 'subtitle_plan'
   | 'music_selection'
-  | 'creative_direction';
+  | 'creative_direction'
+  | 'reference_visual_analysis'
+  | 'reference_classification'
+  | 'feedback_classification'
+  | 'learning_summarization'
+  | 'creative_brief_analysis'
+  | 'design_art_direction'
+  | 'design_layout'
+  | 'design_copywriting'
+  | 'design_asset_planning'
+  | 'design_variants'
+  | 'design_quality_review'
+  | 'design_repair';
 
 export class AiError extends Error {
   status: number;
@@ -134,6 +146,114 @@ export function renderUserPrompt(task: PromptTask, variables: Record<string, unk
     const v = variables[name];
     return v === undefined || v === null ? '' : String(v);
   });
+}
+
+/* ---------------- multimodal (vision) route ---------------- */
+
+export interface VisionImage {
+  /** raw base64 (no data: prefix) */
+  data: string;
+  mime?: string;
+}
+
+/**
+ * Separate multimodal request path. The text `chat()` path stays untouched so a
+ * text-only routed model keeps working; reference analysis explicitly asks for a
+ * vision-capable model (ai.vision_model, else the task route).
+ */
+export async function chatVision(
+  taskHint: string,
+  model: string,
+  opts: { text: string; images: VisionImage[]; system?: string }
+): Promise<{ raw: string; usage?: any }> {
+  const ai = getSettings('ai');
+  const client = makeClient(ai.base_url, ai.api_key);
+  const started = Date.now();
+  const parts: OpenAI.ChatCompletionContentPart[] = [{ type: 'text', text: opts.text }];
+  for (const img of opts.images) {
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${img.mime || 'image/jpeg'};base64,${img.data}` },
+    });
+  }
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    ...(opts.system ? [{ role: 'system' as const, content: opts.system }] : []),
+    { role: 'user', content: parts },
+  ];
+  try {
+    const res = await client.chat.completions.create({
+      model,
+      messages,
+      temperature: ai.temperature,
+      max_tokens: ai.max_tokens,
+      stream: false,
+    });
+    const raw = res.choices?.[0]?.message?.content ?? '';
+    logger.debug('AI', `${taskHint}: vision model=${model} images=${opts.images.length} ${Date.now() - started}ms ${res.usage?.total_tokens ?? '?'} tokens`);
+    return { raw, usage: res.usage };
+  } catch (err: any) {
+    const msg = err?.error?.error?.message || err?.message || 'unknown ai error';
+    const status = err?.status ?? 500;
+    logger.warn('AI', `${taskHint}: vision model=${model} failed (${status}): ${String(msg).slice(0, 300)}`);
+    throw new AiError(msg, status >= 400 && status < 600 ? status : 502);
+  }
+}
+
+/** Vision generation with bounded retries + routed fallback. Throws when vision is unavailable. */
+export async function generateVision<T = unknown>(
+  task: AiTask,
+  variables: Record<string, unknown>,
+  images: VisionImage[],
+  extraSystem?: string
+): Promise<AiResult<T>> {
+  if (!images.length) throw new AiError('vision request requires at least one image', 400);
+  const ai = getSettings('ai');
+  const routed = ai.routing?.[task] || ai.default_model;
+  const model = ai.vision_model || routed;
+  const prompt = renderUserPrompt(task as PromptTask, variables);
+
+  const tryModel = async (m: string): Promise<AiResult<T>> => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const { raw, usage } = await chatVision(task, m, { text: prompt, images, system: extraSystem });
+        return { raw, json: extractJson<T>(raw), model: m, usage };
+      } catch (err) {
+        lastErr = err;
+        const status = err instanceof AiError ? err.status : 500;
+        if (status === 401 || status === 403) throw err;
+        if (status === 400 && attempt >= 1) break; // unsupported content type etc.
+      }
+    }
+    throw lastErr;
+  };
+
+  try {
+    return await tryModel(model);
+  } catch (err) {
+    const fallback = ai.fallback_model;
+    if (fallback && fallback !== model) {
+      logger.warn('AI', `${task}: vision falling back to ${fallback}`);
+      return await tryModel(fallback);
+    }
+    throw err;
+  }
+}
+
+const TINY_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/** Probe whether a model accepts image content on this router (does not judge image quality). */
+export async function testVision(model: string): Promise<{ ok: boolean; reply?: string; error?: string }> {
+  try {
+    const { raw } = await chatVision('test-vision', model, {
+      text: 'Reply with exactly: VISION_OK',
+      images: [{ data: TINY_PNG_B64, mime: 'image/png' }],
+    });
+    return { ok: true, reply: raw.trim().slice(0, 100) };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
 }
 
 /** Close an unterminated JSON fragment (open strings/brackets); null if unfixable. */

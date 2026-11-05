@@ -153,3 +153,53 @@ video { width: 100%; border-radius: 8px; background: #000; max-height: 460px; }
   #nav.open { transform: none; }
   #main { padding: 16px; }
 }
+
+/* ---------- design studio ---------- */
+.formCols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2px 18px; }
+.formCols textarea, .ds-side textarea { min-height: 84px; }
+.btn.tiny { padding: 2px 7px; font-size: 11.5px; line-height: 1.4; }
+.ds-toolbar { gap: 8px; }
+.ds-head h1[contenteditable] { outline: none; min-width: 120px; border-radius: 6px; padding: 2px 6px; }
+.ds-head h1[contenteditable]:focus { background: var(--bg2); box-shadow: 0 0 0 1px var(--accent); }
+
+.ds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 14px; }
+.ds-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; color: var(--text); display: block; }
+.ds-card:hover { border-color: var(--accent); }
+.ds-card.generating { border-color: var(--warn); }
+.ds-card.failed { border-color: var(--bad); }
+.ds-cardBody .badge { align-self: flex-start; }
+.ds-thumb { aspect-ratio: 4/3; background: var(--bg2); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.ds-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.ds-thumbEmpty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+.ds-cardBody { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+
+.ds-work { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .ds-work { grid-template-columns: 1fr; } }
+.ds-stage { display: flex; flex-direction: column; gap: 10px; }
+.ds-canvaswrap { background: repeating-conic-gradient(#151a26 0% 25%, #11151f 0% 50%) 50% / 22px 22px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 10px; min-height: 300px; }
+.ds-canvaswrap svg { max-height: 70vh; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.ds-canvaswrap [data-layer-id] { cursor: pointer; }
+.ds-canvaswrap svg text { pointer-events: bounding-box; }
+.ds-canvaswrap [data-ds-sel] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ds-addrow { gap: 8px; }
+.ds-side { display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 140px); overflow-y: auto; }
+.ds-side .card { padding: 14px; }
+.ds-side label { margin: 8px 0 3px; }
+.ds-side .checkbox { margin: 8px 0; }
+.ds-layers { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.ds-layer { display: flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: 7px; border: 1px solid transparent; cursor: pointer; }
+.ds-layer:hover { background: var(--panel2); }
+.ds-layer.sel { border-color: var(--accent); background: rgba(108,140,255,.1); }
+.ds-layerType { width: 18px; text-align: center; font-size: 12px; color: var(--muted); }
+.ds-layerName { flex: 1; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-versions { display: flex; flex-direction: column; gap: 5px; }
+.ds-version { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.ds-issue { border-left: 3px solid var(--muted); padding: 4px 8px; margin: 6px 0; font-size: 12.5px; background: var(--bg2); border-radius: 0 6px 6px 0; }
+.ds-issue.sev-high { border-color: var(--bad); }
+.ds-issue.sev-medium { border-color: var(--warn); }
+.ds-issue.sev-low { border-color: var(--accent); }
+.ds-assetPicker { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin-top: 8px; }
+.ds-assetBtn { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 4px; cursor: pointer; color: var(--muted); font-size: 11px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.ds-assetBtn:hover { border-color: var(--accent); color: var(--text); }
+.ds-assetBtn img { width: 100%; height: 56px; object-fit: cover; border-radius: 5px; }
+.ds-toast { position: fixed; bottom: 22px; right: 22px; z-index: 100; background: var(--panel2); border: 1px solid var(--good); padding: 11px 16px; border-radius: 9px; font-size: 13px; max-width: 380px; }

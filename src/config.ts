@@ -39,6 +39,9 @@ export const config = {
     preview: dir(process.env.PREVIEW_DIR, './storage/previews'),
     output: dir(process.env.OUTPUT_DIR, './storage/outputs'),
     assets: dir(process.env.ASSET_DIR, './storage/assets'),
+    references: dir(process.env.REFERENCE_DIR, './storage/references'),
+    learning: dir(process.env.LEARNING_DIR, './storage/learning'),
+    designs: dir(process.env.DESIGN_DIR, './storage/designs'),
   },
 
   ffmpeg: process.env.FFMPEG_PATH || 'ffmpeg',

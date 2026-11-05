@@ -18,6 +18,16 @@ Each pipeline stage asks for a *task*; `ai.routing[task]` picks the model (falli
 | `clip_boundary` | Nudge clip boundaries to the cleanest sentence edges. |
 | `title_generation` | Produce a short, catchy title for a clip. |
 | `subtitle_analysis` | Pick emphasis words per clip. |
+| `reference_visual_analysis` | Describe sampled reference frames (vision; see `ai.vision_model`). |
+| `reference_classification` | Category/tags for a reference from its measured summary. |
+| `feedback_classification` | Turn free-text clip feedback into validated feature signals. |
+| `learning_summarization` | Summarize learning insights (advisory text only). |
+| `creative_brief_analysis` | Extract protected facts (offer, dates, address, CTA) from a design brief. |
+| `design_art_direction` | Concept, composition strategy, palette, typography, background for a design. |
+| `design_copywriting` | Role-typed copy blocks for a design (facts carried over verbatim). |
+| `design_variants_copy` | Per-variant copy for design variants. |
+| `design_review_vision` | Vision review of a rendered design (optional; `review.ai`). |
+| `design_repair` | Bounded repair ops for review issues (whitelist; protected text may only be recolored). |
 | `chat` (edit) | Natural-language clip edits from the dashboard. |
 
 You can point cheap/fast tasks at a small model and keep a stronger model for scoring, or

@@ -88,7 +88,7 @@ render: preview | final | telegram  (separate queue jobs, QA-checked)
 
 render job:
   resolve render options (defaults -> preset -> request), snapshot them
-  -> editing plan (cache hit on clip_id+options_hash, else AI):
+  -> editing plan (cache hit on clip_id+options_hash; adaptive plans also key on the learning fingerprint, else AI):
        hook span -> output timeline (hook moved to front, body unchanged)
        subtitle styling plan (word indexes only, schema-validated)
        music selection from the local library
@@ -97,6 +97,16 @@ render job:
      -> watermark overlays; audio trim/concat -> loudnorm -> BGM loudnorm ->
      speech-window ducking -> mix -> limiter
   -> QA: duration/resolution/streams/size/frame + loudness/true-peak
+  -> learning: experience + (adaptive only) preference events recorded, learning_update debounced
+
+side jobs: reference_download (yt-dlp link import into the reference library),
+reference_analysis (vision style profile per reference video),
+learning_update (debounced full recompute of learned preferences from events)
+
+design jobs (design lane — lower priority than video; see [Design Studio](creative-studio/design-studio.md)):
+design_generate / design_variants (brief -> facts -> art direction -> copy [-> image] ->
+deterministic layout -> repair -> snapshot -> save -> review),
+design_review (deterministic, optional vision), design_repair, design_export
 ```
 
 Each stage is a job type registered in `src/workers/worker.ts`. `processOne()` claims the
@@ -109,7 +119,11 @@ driver for multi-process).
 - One OpenAI-compatible client (`src/lib/ai.ts`), base URL + key from settings.
 - `ai.routing` maps each task (`content_analysis`, `highlight_detection`, `clip_scoring`,
   `clip_boundary`, `title_generation`, `subtitle_analysis`, `hook_generation`,
-  `subtitle_plan`, `music_selection`) to a model; requests retry on
+  `subtitle_plan`, `music_selection`, `reference_visual_analysis`,
+  `reference_classification`, `feedback_classification`, `learning_summarization`,
+  `creative_brief_analysis`, `design_art_direction`, `design_copywriting`,
+  `design_variants_copy`, `design_review_vision`, `design_repair`) to a
+  model; requests retry on
   5xx/429 and on malformed JSON, then fall back to `ai.fallback_model`.
 - `extractJson` tolerates code fences and *recovers truncated JSON* (models occasionally cut
   off mid-array; we close brackets and drop the incomplete last element).

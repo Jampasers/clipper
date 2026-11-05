@@ -37,6 +37,24 @@ Control it from a web dashboard or a Telegram bot.
   (hook, subtitle styling, music pick) is cached per clip+options, so re-renders are reproducible.
 - **Editing plan** — everything above is one inspectable plan per render (`editing_plans`), not
   hidden global state.
+- **Visual learning** — a permanent reference library (your best edits, uploaded or imported from
+  YouTube/TikTok/Instagram links) is measured locally and
+  analyzed by a vision model into style profiles; manual settings, 👍/👎 feedback, edits and
+  rejects are distilled into validated per-context preferences that steer later adaptive renders
+  (bounded punch-in, b-roll/SFX density, graphic count, subtitle density). Every change snapshots
+  first; manual values always win over learned ones.
+
+## Design Studio (static graphics)
+
+Generate and edit social posts, promos and posters from a one-line brief — in the same
+dashboard. AI proposes art direction and copy; a deterministic layout engine places every
+layer; the result is an editable JSON document rendered as SVG (one server renderer for
+preview and exports). Exports are real: `svg`, `png`, `jpg` (headless Chromium) and
+`pdf`. Facts from the brief (dates, prices, contacts) are protected — AI copy and repair
+can never rewrite them. Works with no AI configured (deterministic fallbacks), with an
+optional independent image provider for raster backgrounds. Every save is versioned and
+restorable; designs can be saved as reusable templates. See
+[Design Studio](docs/creative-studio/design-studio.md).
 
 All AI steps are controlled: the model returns structured JSON only. It can never run shell
 commands or touch files; edits are validated against a fixed operation whitelist (`src/lib/tools.ts`).
@@ -93,6 +111,8 @@ The first transcription downloads the Whisper model (a few hundred MB for `base`
 
 - [Architecture](docs/architecture.md) — modules, data model, job pipeline.
 - [AI Creative Editor](docs/creative-editor.md) — adaptive mode: EDL, Creative Director, b-roll/SFX, quality review.
+- [Design Studio](docs/creative-studio/design-studio.md) — static graphics: document model, layout engine, exports, templates.
+- [Visual Learning](docs/visual-learning.md) — reference library, vision analysis, preference engine, snapshots.
 - [Setup](docs/setup.md) — install and first run, in depth.
 - [Configuration](docs/configuration.md) — every `.env` variable and settings group.
 - [AI models](docs/ai-models.md) — task routing, prompts, safety model.

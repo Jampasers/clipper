@@ -10,6 +10,7 @@ export const LOG_CATEGORIES = [
   'CAPTION',
   'TELEGRAM',
   'QUEUE',
+  'DESIGN',
   'SYSTEM',
 ] as const;
 export type LogCategory = (typeof LOG_CATEGORIES)[number];

@@ -16,6 +16,8 @@ import { clipView, selectClips, listClips } from '../services/clips.js';
 import { ytdlpMeta } from '../lib/ytdlp.js';
 import { logger } from '../lib/log.js';
 import { nanoid } from 'nanoid';
+import { designAssetDir } from '../services/design-assets.js';
+import { exportsDir, thumbsDir } from '../design/export.js';
 
 export const projectsRouter = Router();
 projectsRouter.use(requireAuth);
@@ -167,6 +169,9 @@ mediaRouter.get('/:scope/:file', (req, res) => {
     outputs: config.dirs.output,
     watermarks: path.join(config.dirs.assets, 'watermarks'),
     music: path.join(config.dirs.assets, 'music'),
+    'design-assets': designAssetDir(),
+    'design-exports': exportsDir(),
+    'design-thumbs': thumbsDir(),
   };
   const dir = scopeMap[scope];
   if (!dir) return res.status(404).end();

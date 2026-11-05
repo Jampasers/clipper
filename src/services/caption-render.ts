@@ -62,23 +62,36 @@ export async function renderCaptionOverlay(o: CaptionRenderOpts): Promise<string
     : { ...frameBase, ...(captionProps ?? { events: [], preset: o.preset, emphasis: o.emphasis, mode: 'ai', animations: true }) };
   const compId = o.creative ? 'CreativeOverlay' : 'CaptionOverlay';
 
-  await ensureBrowser(); // downloads Chrome Headless Shell on first use
-  const serveUrl = await bundleUrl();
-  const timeoutInMilliseconds = 120_000; // cold Chrome launch on a busy box can exceed the 25s default
-  const comps = await getCompositions(serveUrl, { inputProps, timeoutInMilliseconds });
-  const comp = comps.find((c) => c.id === compId);
-  if (!comp) throw new Error(`${compId} composition not found`);
-  await renderMedia({
-    composition: comp,
-    serveUrl,
-    codec: 'prores',
-    proResProfile: '4444',
-    imageFormat: 'png',
-    pixelFormat: 'yuva444p10le',
-    outputLocation: out,
-    inputProps,
-    timeoutInMilliseconds,
-  });
+  // First launch after a fresh Chrome download can exceed Remotion's 25s
+  // connect timeout on Windows (AV scan of the new binary); retry once.
+  const attempt = async () => {
+    await ensureBrowser(); // downloads Chrome Headless Shell on first use
+    const serveUrl = await bundleUrl();
+    const timeoutInMilliseconds = 120_000; // cold Chrome launch on a busy box can exceed the 25s default
+    const comps = await getCompositions(serveUrl, { inputProps, timeoutInMilliseconds });
+    const comp = comps.find((c) => c.id === compId);
+    if (!comp) throw new Error(`${compId} composition not found`);
+    await renderMedia({
+      composition: comp,
+      serveUrl,
+      codec: 'prores',
+      proResProfile: '4444',
+      imageFormat: 'png',
+      pixelFormat: 'yuva444p10le',
+      outputLocation: out,
+      inputProps,
+      timeoutInMilliseconds,
+    });
+  };
+  try {
+    await attempt();
+  } catch (err) {
+    const msg = String((err as Error)?.message ?? err);
+    if (!/connect to the browser/i.test(msg)) throw err;
+    logger.warn('CAPTION', `cold Chrome launch failed (${msg.slice(0, 120)}); retrying once`);
+    await new Promise((r) => setTimeout(r, 3000));
+    await attempt();
+  }
   logger.info(
     'CAPTION',
     `overlay ready: ${o.clipId}/caption.mov (${o.events.length} events, ${o.width}x${o.height}, comp=${compId})`

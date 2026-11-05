@@ -1,6 +1,10 @@
 /* API tests: auth, settings, prompts, authorization, validation — against a real
  * in-process Express app with the shared test DB. */
 import { test, assert, assertEquals } from './runner.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { initDb } from '../src/lib/sqlite.js';
 import { seedPrompts } from '../src/lib/prompts.js';
 import { ensureSuperAdmin, countUsers } from '../src/lib/auth.js';
@@ -166,6 +170,128 @@ export async function runApiTests(): Promise<() => Promise<void>> {
     const r = await call('GET', '/api/dashboard');
     assertEquals(r.status, 200);
     assert(typeof r.data.counts.projects === 'number', 'has project count');
+  });
+
+  test('reference + learning routes serve real shapes', async () => {
+    const refs = await call('GET', '/api/references');
+    assertEquals(refs.status, 200);
+    assert(Array.isArray(refs.data.references) && typeof refs.data.total === 'number', 'references list shape');
+    assertEquals(refs.data.total, 0, 'fresh test DB has no references');
+    const cats = await call('GET', '/api/references/categories');
+    assertEquals(cats.status, 200, 'categories route works');
+    for (const ep of ['learning/events?limit=5', 'learning/insights', 'learning/stats', 'learning/preferences', 'learning/history', 'learning/snapshots']) {
+      const r = await call('GET', `/api/${ep}`);
+      if (r.status !== 200) throw new Error(`${ep} failed: ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    }
+    const ev = await call('GET', '/api/learning/events?limit=5&context=gaming');
+    assertEquals(ev.status, 200, 'events with context filter works');
+    const manual = await call('PUT', '/api/learning/preferences', { feature: 'pacing', contextKey: '', value: 'fast' });
+    assertEquals(manual.status, 200, 'manual preference set via API');
+    assertEquals((await call('POST', '/api/references/url', { url: 'not a url' })).status, 400);
+    assertEquals((await call('POST', '/api/references/url', { url: 'ftp://example.com/x.mp4' })).status, 400);
+    assertEquals((await call('POST', '/api/references/url', {})).status, 400);
+    const del = await call('POST', '/api/learning/reset', { scope: 'all' });
+    assertEquals(del.status, 200, 'reset scope all');
+  });
+
+  test('design routes: CRUD, preview, versions, templates', async () => {
+    const created = await call('POST', '/api/designs', { name: 'API design', width: 800, height: 800 });
+    assertEquals(created.status, 201);
+    const id = created.data.design.id;
+    assertEquals(created.data.design.status, 'draft');
+
+    const got = await call('GET', `/api/designs/${id}`);
+    assertEquals(got.status, 200);
+    assertEquals(got.data.document.id, id);
+
+    const doc = got.data.document;
+    doc.layers.push({
+      id: 't1', type: 'text', name: 'headline', x: 60, y: 60, width: 600, height: 160, text: 'Hello <API> & world',
+      style: { fontFamily: 'Arial', fontSize: 64, fontWeight: 700, lineHeight: 1.2, letterSpacing: 0, align: 'left', color: '#ffffff', uppercase: false, overflow: 'shrink' },
+      opacity: 1, visible: true, locked: false, rotation: 0,
+    });
+    const saved = await call('PUT', `/api/designs/${id}`, { document: doc });
+    assertEquals(saved.status, 200);
+    assertEquals(saved.data.document.revision, got.data.document.revision + 1);
+
+    const invalid = await call('PUT', `/api/designs/${id}`, { document: { id, schemaVersion: 1, canvas: { width: 10 } } });
+    assertEquals(invalid.status, 400);
+
+    const preview = await call('GET', `/api/designs/${id}/preview.svg`);
+    assertEquals(preview.status, 200);
+    const svg = String(preview.data);
+    assert(svg.includes('<svg') && svg.includes('&lt;API&gt;') && svg.includes('&amp;'), 'preview escapes text');
+    assert(!svg.includes('Hello <API>'), 'preview never emits raw markup');
+
+    const adhoc = await call('POST', '/api/designs/preview', { document: got.data.document });
+    assertEquals(adhoc.status, 200);
+
+    const versions = await call('GET', `/api/designs/${id}/versions`);
+    assert(Array.isArray(versions.data.versions) && versions.data.versions.length >= 1, 'version snapshots recorded');
+    const oldestRev = versions.data.versions[versions.data.versions.length - 1].revision;
+    const restored = await call('POST', `/api/designs/${id}/versions/${oldestRev}/restore`);
+    assertEquals(restored.status, 200);
+
+    // re-commit content after the restore so the template has layers to copy
+    const resaved = await call('PUT', `/api/designs/${id}`, { document: doc, label: 'content back' });
+    assertEquals(resaved.status, 200);
+
+    const exp = await call('POST', `/api/designs/${id}/export`, { format: 'svg' });
+    assertEquals(exp.status, 200);
+    assert(exp.data.export.url.includes('/media/design-exports/'), 'svg export served from media scope');
+    const dl = await fetch(baseUrl + exp.data.export.url, { headers: { cookie } });
+    assertEquals(dl.status, 200);
+    assert((await dl.text()).startsWith('<svg'), 'exported svg downloads');
+
+    const tpl = await call('POST', '/api/templates', { name: 'API template', designId: id, category: 'api-test' });
+    assertEquals(tpl.status, 201);
+    const list = await call('GET', '/api/templates?category=api-test');
+    assert(Array.isArray(list.data.templates) && list.data.templates.length >= 1, 'template listed');
+    const applied = await call('POST', `/api/templates/${tpl.data.template.id}/apply`, { name: 'From API template' });
+    assertEquals(applied.status, 201);
+    assert(applied.data.document.layers.length > 0, 'template layers copied');
+    const dupTpl = await call('POST', `/api/templates/${tpl.data.template.id}/duplicate`, {});
+    assertEquals(dupTpl.status, 201);
+    assertEquals((await call('DELETE', `/api/templates/${tpl.data.template.id}`)).status, 200);
+    assertEquals((await call('DELETE', `/api/templates/${dupTpl.data.template.id}`)).status, 200);
+
+    assertEquals((await call('GET', '/api/designs/nope-not-real')).status, 404);
+    assertEquals((await call('DELETE', `/api/designs/${id}`)).status, 200);
+    await call('DELETE', `/api/designs/${applied.data.design.id}`);
+  });
+
+  test('design png export renders through headless chromium', async () => {
+    const created = await call('POST', '/api/designs', { name: 'PNG design', width: 600, height: 600 });
+    const id = created.data.design.id;
+    const exp = await call('POST', `/api/designs/${id}/export`, { format: 'png' });
+    assertEquals(exp.status, 200);
+    assert(exp.data.export.bytes > 1000, `png export has real bytes (${exp.data.export.bytes})`);
+    const dl = await fetch(baseUrl + exp.data.export.url, { headers: { cookie } });
+    const buf = Buffer.from(await dl.arrayBuffer());
+    assert(buf.length > 1000 && buf[0] === 0x89 && buf[1] === 0x50, 'downloaded file is a real png');
+    await call('DELETE', `/api/designs/${id}`);
+  });
+
+  test('design asset library: upload, serve, reference-check, delete', async () => {
+    const assets = await call('GET', '/api/design-assets');
+    assertEquals(assets.status, 200);
+    assert(Array.isArray(assets.data.assets), 'assets list shape');
+    const fonts = await call('GET', '/api/design-assets/fonts');
+    assertEquals(fonts.status, 200);
+
+    const pngPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'avc-asset-')), 'dot.png');
+    const ff = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=16x16', '-frames:v', '1', '-y', pngPath]);
+    if (ff.status !== 0) throw new Error('ffmpeg failed to create a test png');
+    const fd = new FormData();
+    fd.append('file', new Blob([fs.readFileSync(pngPath)], { type: 'image/png' }), 'dot.png');
+    fd.append('kind', 'logo');
+    fd.append('name', 'Red dot');
+    const up = await fetch(baseUrl + '/api/design-assets', { method: 'POST', headers: { cookie }, body: fd });
+    assertEquals(up.status, 201);
+    const asset = (await up.json() as { asset: { id: string; url: string } }).asset;
+    assert(asset.url.startsWith('/media/design-assets/'), 'asset served from media scope');
+    assertEquals((await fetch(baseUrl + asset.url, { headers: { cookie } })).status, 200);
+    assertEquals((await call('DELETE', `/api/design-assets/${asset.id}`)).status, 200);
   });
 
   test('logout invalidates the session', async () => {

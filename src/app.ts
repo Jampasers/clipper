@@ -12,6 +12,10 @@ import { settingsRouter, promptsRouter, systemRouter } from './routes/settings.j
 import { dashboardRouter } from './routes/dashboard.js';
 import { assetsRouter } from './routes/assets.js';
 import { renderRouter } from './routes/render.js';
+import { referencesRouter } from './routes/references.js';
+import { learningRouter } from './routes/learning.js';
+import { designsRouter, templatesRouter } from './routes/designs.js';
+import { designAssetsRouter } from './routes/design-assets.js';
 import { runHealthChecks } from './lib/health.js';
 
 export function createApp(): express.Express {
@@ -32,6 +36,11 @@ export function createApp(): express.Express {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/assets', assetsRouter);
   app.use('/api/render', renderRouter);
+  app.use('/api/references', referencesRouter);
+  app.use('/api/learning', learningRouter);
+  app.use('/api/designs', designsRouter);
+  app.use('/api/templates', templatesRouter);
+  app.use('/api/design-assets', designAssetsRouter);
   app.use('/media', mediaRouter);
 
   app.get('/api/health', async (_req, res) => {

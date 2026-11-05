@@ -13,11 +13,16 @@ import { logger } from '../lib/log.js';
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
 
-const GROUPS: SettingsGroup[] = ['ai', 'clipping', 'scoring', 'subtitles', 'reframe', 'render', 'telegram', 'pipeline', 'watermark', 'hook', 'music'];
+const GROUPS: SettingsGroup[] = ['ai', 'clipping', 'scoring', 'subtitles', 'reframe', 'render', 'telegram', 'pipeline', 'watermark', 'hook', 'music', 'learning', 'design'];
 
 function publicAiSettings() {
   const ai = getSettings('ai');
   return { ...ai, api_key: maskApiKey(ai.api_key), api_key_set: !!ai.api_key };
+}
+
+function publicDesignSettings() {
+  const d = getSettings('design');
+  return { ...d, image_api_key: maskApiKey(d.image_api_key), image_api_key_set: !!d.image_api_key };
 }
 
 settingsRouter.get('/', (_req, res) => {
@@ -34,6 +39,8 @@ settingsRouter.get('/', (_req, res) => {
     watermark: all.watermark,
     hook: all.hook,
     music: all.music,
+    learning: all.learning,
+    design: publicDesignSettings(),
     routing: all.ai.routing,
   });
 });
@@ -42,6 +49,7 @@ settingsRouter.get('/:group', (req, res) => {
   const group = req.params.group as SettingsGroup;
   if (!GROUPS.includes(group)) return res.status(404).json({ error: 'unknown settings group' });
   if (group === 'ai') return res.json(publicAiSettings());
+  if (group === 'design') return res.json(publicDesignSettings());
   res.json(getSettings(group));
 });
 
@@ -55,12 +63,33 @@ settingsRouter.put('/:group', (req, res) => {
     delete body.api_key_set;
     validateAiPatch(body);
   }
+  if (group === 'design') {
+    if (typeof body.image_api_key === 'string' && /^\*+/.test(body.image_api_key)) delete body.image_api_key;
+    delete body.image_api_key_set;
+    validateDesignPatch(body);
+  }
   if (group === 'scoring' || group === 'clipping' || group === 'render' || group === 'hook' || group === 'music' || group === 'watermark') validateNumbers(group, body);
   const updated = setSettings(group, body);
   logger.info('SYSTEM', `settings updated: ${group}`);
   if (group === 'ai') return res.json(publicAiSettings());
+  if (group === 'design') return res.json(publicDesignSettings());
   res.json(updated);
 });
+
+function validateDesignPatch(body: Record<string, unknown>) {
+  if (body.image_timeout_ms !== undefined) body.image_timeout_ms = Math.round(clamp(Number(body.image_timeout_ms), 5000, 600000));
+  if (body.image_retries !== undefined) body.image_retries = Math.round(clamp(Number(body.image_retries), 0, 4));
+  if (body.max_asset_bytes !== undefined) body.max_asset_bytes = Math.round(clamp(Number(body.max_asset_bytes), 1024 * 1024, 200 * 1024 * 1024));
+  if (body.concurrency && typeof body.concurrency === 'object') {
+    const c = body.concurrency as Record<string, unknown>;
+    for (const k of ['video', 'design', 'campaign']) {
+      if (c[k] !== undefined) c[k] = Math.round(clamp(Number(c[k]), 1, 4));
+    }
+  }
+  if (body.image_provider !== undefined && body.image_provider !== 'none' && body.image_provider !== 'openai_images') {
+    throw Object.assign(new Error('image_provider must be "none" or "openai_images"'), { status: 400 });
+  }
+}
 
 function validateAiPatch(body: Record<string, unknown>) {
   if (body.temperature !== undefined) body.temperature = clamp(Number(body.temperature), 0, 2);

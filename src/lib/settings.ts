@@ -10,6 +10,8 @@ export interface AISettings {
   base_url: string;
   api_key: string;
   default_model: string;
+  /** multimodal model used for reference frame analysis ('' = routed task model) */
+  vision_model: string;
   temperature: number;
   max_tokens: number;
   timeout_ms: number;
@@ -156,6 +158,56 @@ export interface CreativeSettings {
   graphics: boolean;
 }
 
+export interface LearningSettings {
+  /** master switch for the visual learning system (automatic learning + reference influence) */
+  enabled: boolean;
+  /** analyse uploaded references automatically */
+  auto_analyze: boolean;
+  /** retrieve + inject reference styles into the Creative Director */
+  use_references: boolean;
+  /** hard cap of references retrieved per render */
+  max_references: number;
+  /** references below this relevance score are ignored */
+  min_reference_score: number;
+  /** hybrid retrieval weights (configurable + testable) */
+  weights: { content: number; style: number; preference: number; visual: number; history: number };
+  /** learned preferences below this confidence are not injected */
+  min_preference_confidence: number;
+  /** deterministic event weights */
+  explicit_weight: number;
+  implicit_weight: number;
+  /** upload limits */
+  max_reference_bytes: number;
+  max_reference_duration: number;
+  /** vision frame sampling */
+  vision_max_frames: number;
+  vision_frame_width: number;
+}
+
+export interface DesignSettings {
+  /**
+   * Image generation provider. The chat router is NOT assumed to support image
+   * generation: 'openai_images' points at an OpenAI-compatible
+   * POST {base}/images/generations endpoint; 'none' keeps text-only design
+   * generation with explicit "unavailable" reporting (no fabricated assets).
+   */
+  image_provider: 'none' | 'openai_images';
+  /** '' = reuse AI_BASE_URL / ai.base_url */
+  image_base_url: string;
+  /** '' = reuse the AI API key */
+  image_api_key: string;
+  image_model: string;
+  image_timeout_ms: number;
+  image_retries: number;
+  /** try to generate a raster background when the provider is configured */
+  generate_backgrounds: boolean;
+  review: { deterministic: boolean; ai: boolean; auto_repair: boolean };
+  export: { default_format: 'png' | 'jpg' | 'svg' | 'pdf'; default_quality: number };
+  /** per-lane worker concurrency (global hard cap 4) */
+  concurrency: { video: number; design: number; campaign: number };
+  max_asset_bytes: number;
+}
+
 export interface AllSettings {
   ai: AISettings;
   clipping: ClippingSettings;
@@ -169,6 +221,8 @@ export interface AllSettings {
   hook: HookSettings;
   music: MusicSettings;
   creative: CreativeSettings;
+  learning: LearningSettings;
+  design: DesignSettings;
 }
 
 export const DEFAULT_SETTINGS: AllSettings = {
@@ -176,6 +230,7 @@ export const DEFAULT_SETTINGS: AllSettings = {
     base_url: config.ai.baseUrl,
     api_key: config.ai.apiKey,
     default_model: config.ai.defaultModel,
+    vision_model: '',
     temperature: 0.3,
     max_tokens: 4096,
     timeout_ms: 120000,
@@ -192,6 +247,18 @@ export const DEFAULT_SETTINGS: AllSettings = {
       subtitle_plan: config.ai.defaultModel,
       music_selection: config.ai.defaultModel,
       creative_direction: config.ai.defaultModel,
+      reference_visual_analysis: config.ai.defaultModel,
+      reference_classification: config.ai.defaultModel,
+      feedback_classification: config.ai.defaultModel,
+      learning_summarization: config.ai.defaultModel,
+      creative_brief_analysis: config.ai.defaultModel,
+      design_art_direction: config.ai.defaultModel,
+      design_layout: config.ai.defaultModel,
+      design_copywriting: config.ai.defaultModel,
+      design_asset_planning: config.ai.defaultModel,
+      design_variants: config.ai.defaultModel,
+      design_quality_review: config.ai.defaultModel,
+      design_repair: config.ai.defaultModel,
     },
   },
   clipping: {
@@ -309,6 +376,34 @@ export const DEFAULT_SETTINGS: AllSettings = {
     quality_review: true,
     graphics: true,
   },
+  learning: {
+    enabled: true,
+    auto_analyze: true,
+    use_references: true,
+    max_references: 3,
+    min_reference_score: 0.15,
+    weights: { content: 0.3, style: 0.25, preference: 0.2, visual: 0.15, history: 0.1 },
+    min_preference_confidence: 0.25,
+    explicit_weight: 2,
+    implicit_weight: 1,
+    max_reference_bytes: 600 * 1024 * 1024,
+    max_reference_duration: 45 * 60,
+    vision_max_frames: 12,
+    vision_frame_width: 512,
+  },
+  design: {
+    image_provider: 'none',
+    image_base_url: '',
+    image_api_key: '',
+    image_model: '',
+    image_timeout_ms: 90000,
+    image_retries: 1,
+    generate_backgrounds: false,
+    review: { deterministic: true, ai: false, auto_repair: true },
+    export: { default_format: 'png', default_quality: 92 },
+    concurrency: { video: 1, design: 1, campaign: 1 },
+    max_asset_bytes: 25 * 1024 * 1024,
+  },
 };
 
 export type SettingsGroup = keyof AllSettings;
@@ -334,6 +429,8 @@ export function getAllSettings(): AllSettings {
     hook: getSettings('hook'),
     music: getSettings('music'),
     creative: getSettings('creative'),
+    learning: getSettings('learning'),
+    design: getSettings('design'),
   };
 }
 
